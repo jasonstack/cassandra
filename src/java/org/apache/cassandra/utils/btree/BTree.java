@@ -25,6 +25,7 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Ordering;
 
 import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.SearchIterator;
 
 import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Iterables.filter;
@@ -234,7 +235,7 @@ public class BTree
      * @param <V>
      * @return
      */
-    public static <K, V> BTreeSearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, Dir dir)
+    public static <K, V> SearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, Dir dir)
     {
         return new BTreeSearchIterator<>(btree, comparator, dir);
     }
@@ -247,7 +248,7 @@ public class BTree
      * @param dir   if false, the iterator will start at the last item and move backwards
      * @return           an Iterator over the defined sub-range of the tree
      */
-    public static <K, V extends K> BTreeSearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, K start, K end, Dir dir)
+    public static <K, V extends K> SearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, K start, K end, Dir dir)
     {
         return slice(btree, comparator, start, true, end, false, dir);
     }
@@ -262,7 +263,7 @@ public class BTree
      * @param dir            direction of iteration
      * @return               an Iterator over the defined sub-range of the tree
      */
-    public static <K, V extends K> BTreeSearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, K start, boolean startInclusive, K end, boolean endInclusive, Dir dir)
+    public static <K, V extends K> SearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, K start, boolean startInclusive, K end, boolean endInclusive, Dir dir)
     {
         int inclusiveLowerBound = max(0,
                                       start == null ? Integer.MIN_VALUE

@@ -36,6 +36,7 @@ import org.apache.cassandra.db.lifecycle.*;
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataInputPlus;
@@ -51,7 +52,6 @@ import org.apache.cassandra.service.pager.*;
 import org.apache.cassandra.thrift.ThriftResultsMerger;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTreeSet;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.HeapAllocator;
@@ -781,50 +781,51 @@ public class SinglePartitionReadCommand extends ReadCommand
         if (result == null)
             return filter;
 
-        SearchIterator<Clustering, Row> searchIter = result.searchIterator(columnFilter(), false);
-
-        PartitionColumns columns = columnFilter().fetchedColumns();
+        Slices slices = filter.getSlices(result.metadata());
+        UnfilteredRowIterator iter = result.unfilteredIterator(columnFilter(), slices, false);
         NavigableSet<Clustering> clusterings = filter.requestedRows();
 
-        // We want to remove rows for which we have values for all requested columns. We have to deal with both static and regular rows.
-        // TODO: we could also remove a selected column if we've found values for every requested row but we'll leave
-        // that for later.
-
-        boolean removeStatic = false;
-        if (!columns.statics.isEmpty())
+        PartitionColumns columns = columnFilter().fetchedColumns();
+        class CollectRemovals extends Transformation
         {
-            Row staticRow = searchIter.next(Clustering.STATIC_CLUSTERING);
-            removeStatic = staticRow != null && canRemoveRow(staticRow, columns.statics, sstableTimestamp);
+            boolean removeStatic;
+            BTreeSet.Builder<Clustering> toRemove;
+
+            protected Row applyToRow(Row row)
+            {
+                if (row != null && canRemoveRow(row, columns.regulars, sstableTimestamp))
+                {
+                    if (toRemove == null)
+                        toRemove = BTreeSet.builder(result.metadata().comparator);
+                    toRemove.add(row.clustering());
+                }
+                return row;
+            }
+
+            protected Row applyToStatic(Row row)
+            {
+                removeStatic |= row != null && canRemoveRow(row, columns.statics, sstableTimestamp);
+                return row;
+            }
         }
 
-        NavigableSet<Clustering> toRemove = null;
-        for (Clustering clustering : clusterings)
-        {
-            if (!searchIter.hasNext())
-                break;
+        CollectRemovals removals = new CollectRemovals();
+        iter = Transformation.apply(iter, removals);
+        while (iter.hasNext()) iter.next();
 
-            Row row = searchIter.next(clustering);
-            if (row == null || !canRemoveRow(row, columns.regulars, sstableTimestamp))
-                continue;
-
-            if (toRemove == null)
-                toRemove = new TreeSet<>(result.metadata().comparator);
-            toRemove.add(clustering);
-        }
-
-        if (!removeStatic && toRemove == null)
+        if (!removals.removeStatic && removals.toRemove == null)
             return filter;
 
         // Check if we have everything we need
-        boolean hasNoMoreStatic = columns.statics.isEmpty() || removeStatic;
-        boolean hasNoMoreClusterings = clusterings.isEmpty() || (toRemove != null && toRemove.size() == clusterings.size());
+        boolean hasNoMoreStatic = columns.statics.isEmpty() || removals.removeStatic;
+        boolean hasNoMoreClusterings = slices.isEmpty() || (removals.toRemove != null && removals.toRemove.size() == clusterings.size());
         if (hasNoMoreStatic && hasNoMoreClusterings)
             return null;
 
-        if (toRemove != null)
+        if (removals.toRemove != null)
         {
             BTreeSet.Builder<Clustering> newClusterings = BTreeSet.builder(result.metadata().comparator);
-            newClusterings.addAll(Sets.difference(clusterings, toRemove));
+            newClusterings.addAll(Sets.difference(clusterings, removals.toRemove.build()));
             clusterings = newClusterings.build();
         }
         return new ClusteringIndexNamesFilter(clusterings, filter.isReversed());

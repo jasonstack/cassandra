@@ -24,9 +24,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.*;
-import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
-import org.apache.cassandra.utils.btree.BTreeSearchIterator;
 
 import static org.apache.cassandra.utils.btree.BTree.Dir.desc;
 
@@ -112,12 +110,31 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         return holder().stats;
     }
 
+    public Row getStaticRow()
+    {
+        return staticRow();
+    }
+
     public Row getRow(Clustering clustering)
     {
-        Row row = searchIterator(ColumnFilter.selection(columns()), false).next(clustering);
-        // Note that for statics, this will never return null, this will return an empty row. However,
-        // it's more consistent for this method to return null if we don't really have a static row.
-        return row == null || (clustering == Clustering.STATIC_CLUSTERING && row.isEmpty()) ? null : row;
+        if (clustering == Clustering.STATIC_CLUSTERING)
+        {
+            Row row = getStaticRow();
+            return row == null || (clustering == Clustering.STATIC_CLUSTERING && row.isEmpty()) ? null : row;
+        }
+
+        Holder holder = holder();
+        Row row = (Row) BTree.find(holder.tree, metadata.comparator, clustering);
+        DeletionTime activeDeletion = holder.deletionInfo.getPartitionDeletion();
+        RangeTombstone rt = holder.deletionInfo.rangeCovering(clustering);
+
+        if (rt != null && rt.deletionTime().supersedes(activeDeletion))
+            activeDeletion = rt.deletionTime();
+
+        if (row == null)
+            return activeDeletion.isLive() ? null : BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(activeDeletion));
+
+        return row.filter(ColumnFilter.all(metadata), activeDeletion, true, metadata);
     }
 
     private Row staticRow(Holder current, ColumnFilter columns, boolean setActiveDeletionToRow)
@@ -128,43 +145,6 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
 
         Row row = current.staticRow.filter(columns, partitionDeletion, setActiveDeletionToRow, metadata);
         return row == null ? Rows.EMPTY_STATIC_ROW : row;
-    }
-
-    public SearchIterator<Clustering, Row> searchIterator(final ColumnFilter columns, final boolean reversed)
-    {
-        // TODO: we could optimize comparison for "NativeRow" à la #6755
-        final Holder current = holder();
-        return new SearchIterator<Clustering, Row>()
-        {
-            private final SearchIterator<Clustering, Row> rawIter = new BTreeSearchIterator<>(current.tree, metadata.comparator, desc(reversed));
-            private final DeletionTime partitionDeletion = current.deletionInfo.getPartitionDeletion();
-
-            public boolean hasNext()
-            {
-                return rawIter.hasNext();
-            }
-
-            public Row next(Clustering clustering)
-            {
-                if (clustering == Clustering.STATIC_CLUSTERING)
-                    return staticRow(current, columns, true);
-
-                Row row = rawIter.next(clustering);
-                RangeTombstone rt = current.deletionInfo.rangeCovering(clustering);
-
-                // A search iterator only return a row, so it doesn't allow to directly account for deletion that should apply to to row
-                // (the partition deletion or the deletion of a range tombstone that covers it). So if needs be, reuse the row deletion
-                // to carry the proper deletion on the row.
-                DeletionTime activeDeletion = partitionDeletion;
-                if (rt != null && rt.deletionTime().supersedes(activeDeletion))
-                    activeDeletion = rt.deletionTime();
-
-                if (row == null)
-                    return activeDeletion.isLive() ? null : BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(activeDeletion));
-
-                return row.filter(columns, activeDeletion, true, metadata);
-            }
-        };
     }
 
     public UnfilteredRowIterator unfilteredIterator()
@@ -210,42 +190,11 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
                                                canHaveShadowedData());
     }
 
-    private abstract class AbstractIterator extends AbstractUnfilteredRowIterator
-    {
-        final Holder current;
-        final ColumnFilter selection;
-
-        private AbstractIterator(ColumnFilter selection, boolean isReversed)
-        {
-            this(AbstractBTreePartition.this.holder(), selection, isReversed);
-        }
-
-        private AbstractIterator(Holder current, ColumnFilter selection, boolean isReversed)
-        {
-            this(current,
-                 AbstractBTreePartition.this.staticRow(current, selection, false),
-                 selection, isReversed);
-        }
-
-        private AbstractIterator(Holder current, Row staticRow, ColumnFilter selection, boolean isReversed)
-        {
-            super(AbstractBTreePartition.this.metadata,
-                  AbstractBTreePartition.this.partitionKey,
-                  current.deletionInfo.getPartitionDeletion(),
-                  selection.fetchedColumns(), // non-selected columns will be filtered in subclasses by RowAndDeletionMergeIterator
-                                              // it would also be more precise to return the intersection of the selection and current.columns,
-                                              // but its probably not worth spending time on computing that.
-                  staticRow,
-                  isReversed,
-                  current.stats);
-            this.current = current;
-            this.selection = selection;
-        }
-    }
-
-    public class SlicesIterator extends AbstractIterator
+    public class SlicesIterator extends AbstractUnfilteredRowIterator
     {
         private final Slices slices;
+        private final Holder current;
+        private final ColumnFilter selection;
 
         private int idx;
         private Iterator<Unfiltered> currentSlice;
@@ -256,7 +205,17 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
                                Holder current,
                                Row staticRow)
         {
-            super(current, staticRow, selection, isReversed);
+            super(AbstractBTreePartition.this.metadata,
+                  AbstractBTreePartition.this.partitionKey,
+                  current.deletionInfo.getPartitionDeletion(),
+                  selection.fetchedColumns(), // non-selected columns will be filtered in subclasses by RowAndDeletionMergeIterator
+                  // it would also be more precise to return the intersection of the selection and current.columns,
+                  // but its probably not worth spending time on computing that.
+                  staticRow,
+                  isReversed,
+                  current.stats);
+            this.current = current;
+            this.selection = selection;
             this.slices = slices;
         }
 

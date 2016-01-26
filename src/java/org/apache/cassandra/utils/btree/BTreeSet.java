@@ -21,14 +21,12 @@ package org.apache.cassandra.utils.btree;
 import java.util.*;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 
+import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree.Dir;
 
 import static org.apache.cassandra.utils.btree.BTree.findIndex;
-import static org.apache.cassandra.utils.btree.BTree.lower;
-import static org.apache.cassandra.utils.btree.BTree.toArray;
 
 public class BTreeSet<V> implements NavigableSet<V>, List<V>
 {
@@ -52,7 +50,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         return comparator;
     }
 
-    protected BTreeSearchIterator<V, V> slice(Dir dir)
+    protected SearchIterator<V, V> slice(Dir dir)
     {
         return BTree.slice(tree, comparator, dir);
     }
@@ -101,13 +99,13 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
     }
 
     @Override
-    public BTreeSearchIterator<V, V> iterator()
+    public SearchIterator<V, V> iterator()
     {
         return slice(Dir.ASC);
     }
 
     @Override
-    public BTreeSearchIterator<V, V> descendingIterator()
+    public SearchIterator<V, V> descendingIterator()
     {
         return slice(Dir.DESC);
     }
@@ -602,6 +600,11 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
             return this;
         }
 
+        // note: may be larger than resulting set, if duplicates present!
+        public int size()
+        {
+            return builder.count;
+        }
         public boolean isEmpty()
         {
             return builder.isEmpty();

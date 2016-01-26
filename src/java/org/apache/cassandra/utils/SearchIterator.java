@@ -17,7 +17,9 @@
  */
 package org.apache.cassandra.utils;
 
-public interface SearchIterator<K, V>
+import java.util.Iterator;
+
+public interface SearchIterator<K, V> extends Iterator<V>
 {
     public boolean hasNext();
 
@@ -32,4 +34,16 @@ public interface SearchIterator<K, V>
      * @return value associated with key, if present in direction of travel
      */
     public V next(K key);
+
+    /**
+     * @return the value just recently returned by next()
+     * @throws java.util.NoSuchElementException if next() returned null
+     */
+    public V current();
+
+    /**
+     * @return the index of the value returned by current(), and just returned by next()
+     * @throws java.util.NoSuchElementException if next() returned null
+     */
+    public int indexOfCurrent();
 }

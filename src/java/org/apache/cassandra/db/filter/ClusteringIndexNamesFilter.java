@@ -30,7 +30,6 @@ import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
-import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTreeSet;
 
 /**
@@ -136,28 +135,7 @@ public class ClusteringIndexNamesFilter extends AbstractClusteringIndexFilter
 
     public UnfilteredRowIterator getUnfilteredRowIterator(final ColumnFilter columnFilter, final Partition partition)
     {
-        final SearchIterator<Clustering, Row> searcher = partition.searchIterator(columnFilter, reversed);
-        return new AbstractUnfilteredRowIterator(partition.metadata(),
-                                        partition.partitionKey(),
-                                        partition.partitionLevelDeletion(),
-                                        columnFilter.fetchedColumns(),
-                                        searcher.next(Clustering.STATIC_CLUSTERING),
-                                        reversed,
-                                        partition.stats())
-        {
-            private final Iterator<Clustering> clusteringIter = clusteringsInQueryOrder.iterator();
-
-            protected Unfiltered computeNext()
-            {
-                while (clusteringIter.hasNext() && searcher.hasNext())
-                {
-                    Row row = searcher.next(clusteringIter.next());
-                    if (row != null)
-                        return row;
-                }
-                return endOfData();
-            }
-        };
+        return partition.unfilteredIterator(columnFilter, getSlices(partition.metadata()), isReversed());
     }
 
     public boolean shouldInclude(SSTableReader sstable)

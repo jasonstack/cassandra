@@ -35,6 +35,7 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.BTreeSearchIterator;
 import org.apache.cassandra.utils.btree.UpdateFunction;
@@ -223,7 +224,7 @@ public class BTreeRow extends AbstractRow
         return CellIterator::new;
     }
 
-    public BTreeSearchIterator<ColumnDefinition, ColumnData> searchIterator()
+    public SearchIterator<ColumnDefinition, ColumnData> searchIterator()
     {
         return BTree.slice(btree, ColumnDefinition.asymmetricColumnDataComparator, BTree.Dir.ASC);
     }

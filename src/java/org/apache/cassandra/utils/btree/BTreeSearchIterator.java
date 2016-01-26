@@ -22,11 +22,11 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-import org.apache.cassandra.utils.IndexedSearchIterator;
+import org.apache.cassandra.utils.SearchIterator;
 
 import static org.apache.cassandra.utils.btree.BTree.size;
 
-public class BTreeSearchIterator<K, V> extends TreeCursor<K> implements IndexedSearchIterator<K, V>, Iterator<V>
+public class BTreeSearchIterator<K, V> extends TreeCursor<K> implements SearchIterator<K, V>, Iterator<V>
 {
     private final boolean forwards;
 

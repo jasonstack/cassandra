@@ -207,6 +207,9 @@ public class UpdateParameters
             return null;
 
         Partition partition = prefetchedRows.get(key);
-        return partition == null ? null : partition.searchIterator(ColumnFilter.selection(partition.columns()), false).next(clustering);
+        return partition == null ? null
+                                 : clustering == Clustering.STATIC_CLUSTERING
+                                   ? partition.getStaticRow()
+                                   : partition.getRow(clustering);
     }
 }

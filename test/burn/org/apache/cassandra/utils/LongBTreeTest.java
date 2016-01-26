@@ -82,8 +82,8 @@ public class LongBTreeTest
         final int perTreeSelections = 100;
         testRandomSelection(perThreadTrees, perTreeSelections,
         (test) -> {
-            IndexedSearchIterator<Integer, Integer> iter1 = test.testAsSet.iterator();
-            IndexedSearchIterator<Integer, Integer> iter2 = test.testAsList.iterator();
+            SearchIterator<Integer, Integer> iter1 = test.testAsSet.iterator();
+            SearchIterator<Integer, Integer> iter2 = test.testAsList.iterator();
             return (key) ->
             {
                 Integer found1 = iter1.hasNext() ? iter1.next(key) : null;

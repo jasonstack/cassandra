@@ -44,13 +44,11 @@ import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.partitions.AbstractBTreePartition;
 import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
-import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.rows.Row.Deletion;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.SearchIterator;
 
 public class PartitionImplementationTest
 {
@@ -307,40 +305,11 @@ public class PartitionImplementationTest
         assertIteratorsEqual(streamOf(invert(slice(sortedContent, multiSlices))).map(colFilter).iterator(),
                              partition.unfilteredIterator(cf, multiSlices, true));
 
-        // search iterator
-        testSearchIterator(sortedContent, partition, ColumnFilter.all(cfm), false);
-        testSearchIterator(sortedContent, partition, cf, false);
-        testSearchIterator(sortedContent, partition, ColumnFilter.all(cfm), true);
-        testSearchIterator(sortedContent, partition, cf, true);
-
         // sliceable iter
         testSlicingOfIterators(sortedContent, partition, ColumnFilter.all(cfm), false);
         testSlicingOfIterators(sortedContent, partition, cf, false);
         testSlicingOfIterators(sortedContent, partition, ColumnFilter.all(cfm), true);
         testSlicingOfIterators(sortedContent, partition, cf, true);
-    }
-
-    void testSearchIterator(NavigableSet<Clusterable> sortedContent, Partition partition, ColumnFilter cf, boolean reversed)
-    {
-        SearchIterator<Clustering, Row> searchIter = partition.searchIterator(cf, reversed);
-        int pos = reversed ? KEY_RANGE : 0;
-        int mul = reversed ? -1 : 1;
-        boolean started = false;
-        while (searchIter.hasNext())
-        {
-            int skip = rand.nextInt(KEY_RANGE / 10);
-            pos += skip * mul;
-            Clustering cl = clustering(pos);
-            Row row = searchIter.next(cl);  // returns row with deletion, incl. empty row with deletion
-            if (row == null && skip == 0 && started)    // allowed to return null if already reported row
-                continue;
-            started = true;
-            Row expected = getRow(sortedContent, cl);
-            assertEquals(expected == null, row == null);
-            if (row == null)
-                continue;
-            assertRowsEqual(expected.filter(cf, cfm), row);
-        }
     }
 
     Slices makeSlices()

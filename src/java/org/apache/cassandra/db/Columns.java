@@ -37,7 +37,6 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
-import org.apache.cassandra.utils.btree.BTreeSearchIterator;
 import org.apache.cassandra.utils.btree.BTreeRemoval;
 import org.apache.cassandra.utils.btree.UpdateFunction;
 
@@ -274,7 +273,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
         if (other.size() > this.size())
             return false;
 
-        BTreeSearchIterator<ColumnDefinition, ColumnDefinition> iter = BTree.slice(columns, Comparator.naturalOrder(), BTree.Dir.ASC);
+        SearchIterator<ColumnDefinition, ColumnDefinition> iter = BTree.slice(columns, Comparator.naturalOrder(), BTree.Dir.ASC);
         for (Object def : other)
             if (iter.next((ColumnDefinition) def) == null)
                 return false;
@@ -306,7 +305,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
      *
      * @return an iterator over all the columns of this object.
      */
-    public BTreeSearchIterator<ColumnDefinition, ColumnDefinition> iterator()
+    public SearchIterator<ColumnDefinition, ColumnDefinition> iterator()
     {
         return BTree.<ColumnDefinition, ColumnDefinition>slice(columns, Comparator.naturalOrder(), BTree.Dir.ASC);
     }
@@ -523,7 +522,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
         private static long encodeBitmap(Collection<ColumnDefinition> columns, Columns superset, int supersetCount)
         {
             long bitmap = 0L;
-            BTreeSearchIterator<ColumnDefinition, ColumnDefinition> iter = superset.iterator();
+            SearchIterator<ColumnDefinition, ColumnDefinition> iter = superset.iterator();
             // the index we would encounter next if all columns are present
             int expectIndex = 0;
             for (ColumnDefinition column : columns)
@@ -549,7 +548,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
         {
             // write flag indicating we're in lengthy mode
             out.writeUnsignedVInt(supersetCount - columnCount);
-            BTreeSearchIterator<ColumnDefinition, ColumnDefinition> iter = superset.iterator();
+            SearchIterator<ColumnDefinition, ColumnDefinition> iter = superset.iterator();
             if (columnCount < supersetCount / 2)
             {
                 // write present columns
@@ -621,7 +620,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
         {
             // write flag indicating we're in lengthy mode
             int size = TypeSizes.sizeofUnsignedVInt(supersetCount - columnCount);
-            BTreeSearchIterator<ColumnDefinition, ColumnDefinition> iter = superset.iterator();
+            SearchIterator<ColumnDefinition, ColumnDefinition> iter = superset.iterator();
             if (columnCount < supersetCount / 2)
             {
                 // write present columns
