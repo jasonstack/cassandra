@@ -549,7 +549,7 @@ public class SinglePartitionReadCommand extends ReadCommand
 
                 sstable.incrementReadCount();
                 @SuppressWarnings("resource") // 'iter' is added to iterators which is closed on exception, or through the closing of the final merged iterator
-                UnfilteredRowIterator iter = sstable.iterator(partitionKey(), filter.getSlices(metadata()), columnFilter(), filter.isReversed(), isForThrift());
+                UnfilteredRowIterator iter = sstable.iterator(partitionKey(), filter.getSlices(), columnFilter(), filter.isReversed(), isForThrift());
                 if (!sstable.isRepaired())
                     oldestUnrepairedTombstone = Math.min(oldestUnrepairedTombstone, sstable.getMinLocalDeletionTime());
 
@@ -569,7 +569,7 @@ public class SinglePartitionReadCommand extends ReadCommand
 
                     sstable.incrementReadCount();
                     @SuppressWarnings("resource") // 'iter' is either closed right away, or added to iterators which is close on exception, or through the closing of the final merged iterator
-                    UnfilteredRowIterator iter = sstable.iterator(partitionKey(), filter.getSlices(metadata()), columnFilter(), filter.isReversed(), isForThrift());
+                    UnfilteredRowIterator iter = sstable.iterator(partitionKey(), filter.getSlices(), columnFilter(), filter.isReversed(), isForThrift());
                     if (iter.partitionLevelDeletion().markedForDeleteAt() > minTimestamp)
                     {
                         iterators.add(iter);
@@ -717,7 +717,7 @@ public class SinglePartitionReadCommand extends ReadCommand
 
             Tracing.trace("Merging data from sstable {}", sstable.descriptor.generation);
             sstable.incrementReadCount();
-            try (UnfilteredRowIterator iter = sstable.iterator(partitionKey(), filter.getSlices(metadata()), columnFilter(), filter.isReversed(), isForThrift());)
+            try (UnfilteredRowIterator iter = sstable.iterator(partitionKey(), filter.getSlices(), columnFilter(), filter.isReversed(), isForThrift());)
             {
                 if (iter.isEmpty())
                     continue;
@@ -781,7 +781,7 @@ public class SinglePartitionReadCommand extends ReadCommand
         if (result == null)
             return filter;
 
-        Slices slices = filter.getSlices(result.metadata());
+        Slices slices = filter.getSlices();
         UnfilteredRowIterator iter = result.unfilteredIterator(columnFilter(), slices, false);
         NavigableSet<Clustering> clusterings = filter.requestedRows();
 
@@ -828,7 +828,7 @@ public class SinglePartitionReadCommand extends ReadCommand
             newClusterings.addAll(Sets.difference(clusterings, removals.toRemove.build()));
             clusterings = newClusterings.build();
         }
-        return new ClusteringIndexNamesFilter(clusterings, filter.isReversed());
+        return new ClusteringIndexNamesFilter(clusterings, metadata(), filter.isReversed());
     }
 
     private boolean canRemoveRow(Row row, Columns requestedColumns, long sstableTimestamp)

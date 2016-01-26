@@ -687,7 +687,7 @@ public abstract class ModificationStatement implements CQLStatement
                                         now);
 
         return makeUpdateParameters(keys,
-                                    new ClusteringIndexNamesFilter(clusterings, false),
+                                    new ClusteringIndexNamesFilter(clusterings, cfm, false),
                                     options,
                                     DataLimits.NONE,
                                     local,

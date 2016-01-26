@@ -527,7 +527,7 @@ public class SelectStatement implements CQLStatement
             if (clusterings.isEmpty() && queriedColumns.fetchedColumns().statics.isEmpty())
                 return null;
 
-            return new ClusteringIndexNamesFilter(clusterings, isReversed);
+            return new ClusteringIndexNamesFilter(clusterings, cfm, isReversed);
         }
     }
 

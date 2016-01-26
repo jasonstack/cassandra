@@ -22,7 +22,9 @@ import java.util.List;
 import java.nio.ByteBuffer;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.marshal.ReversedType;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.partitions.CachedPartition;
 import org.apache.cassandra.db.partitions.Partition;
@@ -38,7 +40,7 @@ public class ClusteringIndexSliceFilter extends AbstractClusteringIndexFilter
 {
     static final InternalDeserializer deserializer = new SliceDeserializer();
 
-    private final Slices slices;
+    final Slices slices;
 
     public ClusteringIndexSliceFilter(Slices slices, boolean reversed)
     {
@@ -46,7 +48,7 @@ public class ClusteringIndexSliceFilter extends AbstractClusteringIndexFilter
         this.slices = slices;
     }
 
-    public Slices requestedSlices()
+    public Slices getSlices()
     {
         return slices;
     }
@@ -112,11 +114,6 @@ public class ClusteringIndexSliceFilter extends AbstractClusteringIndexFilter
             }
         }
         return Transformation.apply(iterator, new FilterNotIndexed());
-    }
-
-    public Slices getSlices(CFMetaData metadata)
-    {
-        return slices;
     }
 
     public UnfilteredRowIterator getUnfilteredRowIterator(ColumnFilter columnFilter, Partition partition)

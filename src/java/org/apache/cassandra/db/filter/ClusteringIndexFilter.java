@@ -37,7 +37,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
  */
 public interface ClusteringIndexFilter
 {
-    public static Serializer serializer = AbstractClusteringIndexFilter.serializer;
+    public static Serializer serializer = ClusteringIndexSliceFilter.serializer;
 
     public enum Kind
     {
@@ -128,7 +128,7 @@ public interface ClusteringIndexFilter
      */
     public UnfilteredRowIterator filterNotIndexed(ColumnFilter columnFilter, UnfilteredRowIterator iterator);
 
-    public Slices getSlices(CFMetaData metadata);
+    public Slices getSlices();
 
     /**
      * Given a partition, returns a row iterator for the rows of this partition that are selected by this filter.

@@ -35,7 +35,7 @@ import org.apache.cassandra.utils.btree.BTreeSet;
 /**
  * A filter selecting rows given their clustering value.
  */
-public class ClusteringIndexNamesFilter extends AbstractClusteringIndexFilter
+public class ClusteringIndexNamesFilter extends ClusteringIndexSliceFilter
 {
     static final InternalDeserializer deserializer = new NamesDeserializer();
 
@@ -43,18 +43,28 @@ public class ClusteringIndexNamesFilter extends AbstractClusteringIndexFilter
     // selects the static row)
     private final NavigableSet<Clustering> clusterings;
 
-    // clusterings is always in clustering order (because we need it that way in some methods), but we also
-    // sometimes need those clustering in "query" order (i.e. in reverse clustering order if the query is
-    // reversed), so we keep that too for simplicity.
-    private final NavigableSet<Clustering> clusteringsInQueryOrder;
-
-    public ClusteringIndexNamesFilter(NavigableSet<Clustering> clusterings, boolean reversed)
+    public ClusteringIndexNamesFilter(NavigableSet<Clustering> clusterings, CFMetaData metadata, boolean reversed)
     {
-        super(reversed);
+        super(getSlices(reversed ? clusterings.descendingSet() : clusterings, metadata), reversed);
         assert !clusterings.contains(Clustering.STATIC_CLUSTERING);
         this.clusterings = clusterings;
-        this.clusteringsInQueryOrder = reversed ? clusterings.descendingSet() : clusterings;
     }
+
+    private ClusteringIndexNamesFilter(NavigableSet<Clustering> clusterings, Slices slices, boolean reversed)
+    {
+        super(slices, reversed);
+        assert !clusterings.contains(Clustering.STATIC_CLUSTERING);
+        this.clusterings = clusterings;
+    }
+
+    private static Slices getSlices(NavigableSet<Clustering> clusteringsInQueryOrder, CFMetaData metadata)
+    {
+        Slices.Builder builder = new Slices.Builder(metadata.comparator, clusteringsInQueryOrder.size());
+        for (Clustering clustering : clusteringsInQueryOrder)
+            builder.add(Slice.make(clustering));
+        return builder.build();
+    }
+
 
     /**
      * The set of requested rows.
@@ -81,11 +91,15 @@ public class ClusteringIndexNamesFilter extends AbstractClusteringIndexFilter
 
     public ClusteringIndexNamesFilter forPaging(ClusteringComparator comparator, Clustering lastReturned, boolean inclusive)
     {
+        Slices slices = this.slices.forPaging(comparator, lastReturned, inclusive, reversed);
+        if (slices == this.slices)
+            return this;
+
         NavigableSet<Clustering> newClusterings = reversed ?
                                                   clusterings.headSet(lastReturned, inclusive) :
                                                   clusterings.tailSet(lastReturned, inclusive);
 
-        return new ClusteringIndexNamesFilter(newClusterings, reversed);
+        return new ClusteringIndexNamesFilter(newClusterings, slices, reversed);
     }
 
     public boolean isFullyCoveredBy(CachedPartition partition)
@@ -125,17 +139,9 @@ public class ClusteringIndexNamesFilter extends AbstractClusteringIndexFilter
         return Transformation.apply(iterator, new FilterNotIndexed());
     }
 
-    public Slices getSlices(CFMetaData metadata)
-    {
-        Slices.Builder builder = new Slices.Builder(metadata.comparator, clusteringsInQueryOrder.size());
-        for (Clustering clustering : clusteringsInQueryOrder)
-            builder.add(Slice.make(clustering));
-        return builder.build();
-    }
-
     public UnfilteredRowIterator getUnfilteredRowIterator(final ColumnFilter columnFilter, final Partition partition)
     {
-        return partition.unfilteredIterator(columnFilter, getSlices(partition.metadata()), isReversed());
+        return partition.unfilteredIterator(columnFilter, getSlices(), isReversed());
     }
 
     public boolean shouldInclude(SSTableReader sstable)
@@ -214,7 +220,7 @@ public class ClusteringIndexNamesFilter extends AbstractClusteringIndexFilter
             for (int i = 0; i < size; i++)
                 clusterings.add(Clustering.serializer.deserialize(in, version, comparator.subtypes()));
 
-            return new ClusteringIndexNamesFilter(clusterings.build(), reversed);
+            return new ClusteringIndexNamesFilter(clusterings.build(), metadata, reversed);
         }
     }
 }

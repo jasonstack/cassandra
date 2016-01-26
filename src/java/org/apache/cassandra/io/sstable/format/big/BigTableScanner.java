@@ -330,7 +330,7 @@ public class BigTableScanner implements ISSTableScanner
                             }
 
                             ClusteringIndexFilter filter = dataRange.clusteringIndexFilter(partitionKey());
-                            return sstable.iterator(dfile, partitionKey(), currentEntry, filter.getSlices(BigTableScanner.this.metadata()), columns, filter.isReversed(), isForThrift);
+                            return sstable.iterator(dfile, partitionKey(), currentEntry, filter.getSlices(), columns, filter.isReversed(), isForThrift);
                         }
                         catch (CorruptSSTableException | IOException e)
                         {

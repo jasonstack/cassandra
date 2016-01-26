@@ -191,7 +191,7 @@ public abstract class AbstractReadCommandBuilder
     {
         if (clusterings != null)
         {
-            return new ClusteringIndexNamesFilter(clusterings, reversed);
+            return new ClusteringIndexNamesFilter(clusterings, cfs.metadata, reversed);
         }
         else
         {

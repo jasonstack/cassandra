@@ -776,8 +776,8 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
                 // slice filter serialization
                 ClusteringIndexSliceFilter filter = (ClusteringIndexSliceFilter) rangeCommand.dataRange().clusteringIndexFilter;
 
-                boolean makeStaticSlice = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() && !filter.requestedSlices().selects(Clustering.STATIC_CLUSTERING);
-                LegacyReadCommandSerializer.serializeSlices(out, filter.requestedSlices(), filter.isReversed(), makeStaticSlice, metadata);
+                boolean makeStaticSlice = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() && !filter.getSlices().selects(Clustering.STATIC_CLUSTERING);
+                LegacyReadCommandSerializer.serializeSlices(out, filter.getSlices(), filter.isReversed(), makeStaticSlice, metadata);
 
                 out.writeBoolean(filter.isReversed());
 
@@ -787,10 +787,10 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
                 if (isDistinct)
                     out.writeInt(1);
                 else
-                    out.writeInt(LegacyReadCommandSerializer.updateLimitForQuery(rangeCommand.limits().count(), filter.requestedSlices()));
+                    out.writeInt(LegacyReadCommandSerializer.updateLimitForQuery(rangeCommand.limits().count(), filter.getSlices()));
 
                 int compositesToGroup;
-                boolean selectsStatics = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() || filter.requestedSlices().selects(Clustering.STATIC_CLUSTERING);
+                boolean selectsStatics = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() || filter.getSlices().selects(Clustering.STATIC_CLUSTERING);
                 if (kind == DataLimits.Kind.THRIFT_LIMIT)
                     compositesToGroup = -1;
                 else if (isDistinct && !selectsStatics)
@@ -939,8 +939,8 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
             else
             {
                 ClusteringIndexSliceFilter filter = (ClusteringIndexSliceFilter) rangeCommand.dataRange().clusteringIndexFilter;
-                boolean makeStaticSlice = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() && !filter.requestedSlices().selects(Clustering.STATIC_CLUSTERING);
-                size += LegacyReadCommandSerializer.serializedSlicesSize(filter.requestedSlices(), makeStaticSlice, metadata);
+                boolean makeStaticSlice = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() && !filter.getSlices().selects(Clustering.STATIC_CLUSTERING);
+                size += LegacyReadCommandSerializer.serializedSlicesSize(filter.getSlices(), makeStaticSlice, metadata);
                 size += TypeSizes.sizeof(filter.isReversed());
                 size += TypeSizes.sizeof(rangeCommand.limits().perPartitionCount());
                 size += TypeSizes.sizeof(0); // compositesToGroup
@@ -1029,8 +1029,8 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
                 filter = (ClusteringIndexSliceFilter) rangeCommand.dataRange().clusteringIndexFilter;
 
             // slice filter
-            boolean makeStaticSlice = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() && !filter.requestedSlices().selects(Clustering.STATIC_CLUSTERING);
-            LegacyReadCommandSerializer.serializeSlices(out, filter.requestedSlices(), filter.isReversed(), makeStaticSlice, metadata);
+            boolean makeStaticSlice = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() && !filter.getSlices().selects(Clustering.STATIC_CLUSTERING);
+            LegacyReadCommandSerializer.serializeSlices(out, filter.getSlices(), filter.isReversed(), makeStaticSlice, metadata);
             out.writeBoolean(filter.isReversed());
 
             // slice filter's count
@@ -1039,10 +1039,10 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
             if (isDistinct)
                 out.writeInt(1);
             else
-                out.writeInt(LegacyReadCommandSerializer.updateLimitForQuery(rangeCommand.limits().perPartitionCount(), filter.requestedSlices()));
+                out.writeInt(LegacyReadCommandSerializer.updateLimitForQuery(rangeCommand.limits().perPartitionCount(), filter.getSlices()));
 
             // compositesToGroup
-            boolean selectsStatics = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() || filter.requestedSlices().selects(Clustering.STATIC_CLUSTERING);
+            boolean selectsStatics = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() || filter.getSlices().selects(Clustering.STATIC_CLUSTERING);
             int compositesToGroup;
             if (kind == DataLimits.Kind.THRIFT_LIMIT)
                 compositesToGroup = -1;
@@ -1059,7 +1059,7 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
             DataRange.Paging pagingRange = (DataRange.Paging) rangeCommand.dataRange();
             Clustering lastReturned = pagingRange.getLastReturned();
             Slice.Bound newStart = Slice.Bound.exclusiveStartOf(lastReturned);
-            Slice lastSlice = filter.requestedSlices().get(filter.requestedSlices().size() - 1);
+            Slice lastSlice = filter.getSlices().get(filter.getSlices().size() - 1);
             ByteBufferUtil.writeWithShortLength(LegacyLayout.encodeBound(metadata, newStart, true), out);
             ByteBufferUtil.writeWithShortLength(LegacyLayout.encodeClustering(metadata, lastSlice.end().clustering()), out);
 
@@ -1128,7 +1128,7 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
             // the start of the overall slice and will not be a proper Clustering. So detect that case and just return a non-paging DataRange, which
             // is what 3.0 does.
             DataRange dataRange = new DataRange(keyRange, filter);
-            Slices slices = filter.requestedSlices();
+            Slices slices = filter.getSlices();
             if (!isDistinct && startBound != LegacyLayout.LegacyBound.BOTTOM && !startBound.bound.equals(slices.get(0).start()))
             {
                 // pre-3.0 nodes normally expect pages to include the last cell from the previous page, but they handle it
@@ -1161,8 +1161,8 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
                 filter = (ClusteringIndexSliceFilter) rangeCommand.dataRange().clusteringIndexFilter;
 
             // slice filter
-            boolean makeStaticSlice = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() && !filter.requestedSlices().selects(Clustering.STATIC_CLUSTERING);
-            size += LegacyReadCommandSerializer.serializedSlicesSize(filter.requestedSlices(), makeStaticSlice, metadata);
+            boolean makeStaticSlice = !rangeCommand.columnFilter().fetchedColumns().statics.isEmpty() && !filter.getSlices().selects(Clustering.STATIC_CLUSTERING);
+            size += LegacyReadCommandSerializer.serializedSlicesSize(filter.getSlices(), makeStaticSlice, metadata);
             size += TypeSizes.sizeof(filter.isReversed());
 
             // slice filter's count
@@ -1174,7 +1174,7 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
             // command-level Composite "start" and "stop"
             DataRange.Paging pagingRange = (DataRange.Paging) rangeCommand.dataRange();
             Clustering lastReturned = pagingRange.getLastReturned();
-            Slice lastSlice = filter.requestedSlices().get(filter.requestedSlices().size() - 1);
+            Slice lastSlice = filter.getSlices().get(filter.getSlices().size() - 1);
             size += ByteBufferUtil.serializedSizeWithShortLength(LegacyLayout.encodeClustering(metadata, lastReturned));
             size += ByteBufferUtil.serializedSizeWithShortLength(LegacyLayout.encodeClustering(metadata, lastSlice.end().clustering()));
 
@@ -1376,7 +1376,7 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
 
             // clusterings cannot include STATIC_CLUSTERING, so if the names filter is for static columns, clusterings
             // will be empty.  However, by requesting the static columns in our ColumnFilter, this will still work.
-            ClusteringIndexNamesFilter filter = new ClusteringIndexNamesFilter(clusterings, false);
+            ClusteringIndexNamesFilter filter = new ClusteringIndexNamesFilter(clusterings, metadata, false);
             return Pair.create(selectionBuilder.build(), filter);
         }
 
@@ -1392,7 +1392,7 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
             CFMetaData metadata = command.metadata();
             ClusteringIndexSliceFilter filter = (ClusteringIndexSliceFilter)command.clusteringIndexFilter();
 
-            Slices slices = filter.requestedSlices();
+            Slices slices = filter.getSlices();
             boolean makeStaticSlice = !command.columnFilter().fetchedColumns().statics.isEmpty() && !slices.selects(Clustering.STATIC_CLUSTERING);
             serializeSlices(out, slices, filter.isReversed(), makeStaticSlice, metadata);
 
@@ -1404,7 +1404,7 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
             if (isDistinct)
                 out.writeInt(1);  // the limit is always 1 for DISTINCT queries
             else
-                out.writeInt(updateLimitForQuery(command.limits().count(), filter.requestedSlices()));
+                out.writeInt(updateLimitForQuery(command.limits().count(), filter.getSlices()));
 
             int compositesToGroup;
             if (kind == DataLimits.Kind.THRIFT_LIMIT || metadata.isDense())
@@ -1446,7 +1446,7 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
             CFMetaData metadata = command.metadata();
             ClusteringIndexSliceFilter filter = (ClusteringIndexSliceFilter)command.clusteringIndexFilter();
 
-            Slices slices = filter.requestedSlices();
+            Slices slices = filter.getSlices();
             boolean makeStaticSlice = !command.columnFilter().fetchedColumns().statics.isEmpty() && !slices.selects(Clustering.STATIC_CLUSTERING);
 
             long size = serializedSlicesSize(slices, makeStaticSlice, metadata);

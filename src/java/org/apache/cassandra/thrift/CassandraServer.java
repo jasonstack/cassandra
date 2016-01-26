@@ -360,7 +360,7 @@ public class CassandraServer implements Cassandra.Iface
     private ClusteringIndexFilter toInternalFilter(CFMetaData metadata, ColumnParent parent, SliceRange range)
     {
         if (metadata.isSuper() && parent.isSetSuper_column())
-            return new ClusteringIndexNamesFilter(FBUtilities.singleton(new Clustering(parent.bufferForSuper_column()), metadata.comparator), range.reversed);
+            return new ClusteringIndexNamesFilter(FBUtilities.singleton(new Clustering(parent.bufferForSuper_column()), metadata.comparator), metadata, range.reversed);
         else
             return new ClusteringIndexSliceFilter(makeSlices(metadata, range), range.reversed);
     }
@@ -384,14 +384,14 @@ public class CassandraServer implements Cassandra.Iface
                 {
                     if (parent.isSetSuper_column())
                     {
-                        return new ClusteringIndexNamesFilter(FBUtilities.singleton(new Clustering(parent.bufferForSuper_column()), metadata.comparator), false);
+                        return new ClusteringIndexNamesFilter(FBUtilities.singleton(new Clustering(parent.bufferForSuper_column()), metadata.comparator), metadata, false);
                     }
                     else
                     {
                         NavigableSet<Clustering> clusterings = new TreeSet<>(metadata.comparator);
                         for (ByteBuffer bb : predicate.column_names)
                             clusterings.add(new Clustering(bb));
-                        return new ClusteringIndexNamesFilter(clusterings, false);
+                        return new ClusteringIndexNamesFilter(clusterings, metadata, false);
                     }
                 }
                 else
@@ -407,7 +407,7 @@ public class CassandraServer implements Cassandra.Iface
 
                     // clusterings cannot include STATIC_CLUSTERING, so if the names filter is for static columns, clusterings
                     // will be empty.  However, by requesting the static columns in our ColumnFilter, this will still work.
-                    return new ClusteringIndexNamesFilter(clusterings, false);
+                    return new ClusteringIndexNamesFilter(clusterings, metadata, false);
                 }
             }
             else
@@ -618,7 +618,7 @@ public class CassandraServer implements Cassandra.Iface
                     columns = builder.build();
                 }
                 filter = new ClusteringIndexNamesFilter(FBUtilities.singleton(new Clustering(column_path.super_column), metadata.comparator),
-                                                  false);
+                                                        metadata, false);
             }
             else
             {
@@ -631,12 +631,12 @@ public class CassandraServer implements Cassandra.Iface
                     builder.add(cellname.column);
                     builder.add(metadata.compactValueColumn());
                     columns = builder.build();
-                    filter = new ClusteringIndexNamesFilter(FBUtilities.singleton(new Clustering(column_path.column), metadata.comparator), false);
+                    filter = new ClusteringIndexNamesFilter(FBUtilities.singleton(new Clustering(column_path.column), metadata.comparator), metadata, false);
                 }
                 else
                 {
                     columns = ColumnFilter.selection(PartitionColumns.of(cellname.column));
-                    filter = new ClusteringIndexNamesFilter(FBUtilities.singleton(cellname.clustering, metadata.comparator), false);
+                    filter = new ClusteringIndexNamesFilter(FBUtilities.singleton(cellname.clustering, metadata.comparator), metadata, false);
                 }
             }
 
@@ -2539,7 +2539,7 @@ public class CassandraServer implements Cassandra.Iface
             PartitionColumns columns = expectedPartition.staticRow().isEmpty()
                                      ? metadata.partitionColumns().withoutStatics()
                                      : metadata.partitionColumns();
-            ClusteringIndexNamesFilter filter = new ClusteringIndexNamesFilter(clusterings.build(), false);
+            ClusteringIndexNamesFilter filter = new ClusteringIndexNamesFilter(clusterings.build(), metadata, false);
             return SinglePartitionReadCommand.create(true, metadata, nowInSec, ColumnFilter.selection(columns), RowFilter.NONE, DataLimits.NONE, key, filter);
         }
 

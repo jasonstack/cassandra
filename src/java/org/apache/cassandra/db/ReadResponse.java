@@ -288,7 +288,7 @@ public abstract class ReadResponse
                     // Pre-3.0, we didn't have a way to express exclusivity for non-composite comparators, so all slices were
                     // inclusive on both ends. If we have exclusive slice ends, we need to filter the results here.
                     if (!command.metadata().isCompound())
-                        return partition.unfilteredIterator(command.columnFilter(), filter.getSlices(command.metadata()), filter.isReversed());
+                        return partition.unfilteredIterator(command.columnFilter(), filter.getSlices(), filter.isReversed());
 
                     return partition.unfilteredIterator(command.columnFilter(), Slices.ALL, filter.isReversed());
                 }

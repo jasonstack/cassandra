@@ -78,11 +78,11 @@ public abstract class CassandraIndexSearcher implements Index.Searcher
                 BTreeSet.Builder<Clustering> clusterings = BTreeSet.builder(index.getIndexComparator());
                 for (Clustering c : requested)
                     clusterings.add(makeIndexClustering(pk, c));
-                return new ClusteringIndexNamesFilter(clusterings.build(), filter.isReversed());
+                return new ClusteringIndexNamesFilter(clusterings.build(), command.metadata(), filter.isReversed());
             }
             else
             {
-                Slices requested = ((ClusteringIndexSliceFilter)filter).requestedSlices();
+                Slices requested = ((ClusteringIndexSliceFilter)filter).getSlices();
                 Slices.Builder builder = new Slices.Builder(index.getIndexComparator());
                 for (Slice slice : requested)
                     builder.add(makeIndexBound(pk, slice.start()), makeIndexBound(pk, slice.end()));
@@ -130,8 +130,8 @@ public abstract class CassandraIndexSearcher implements Index.Searcher
                         // (or through post-query reordering) and shouldn't get there.
                         assert !startSliceFilter.isReversed() && !endSliceFilter.isReversed();
 
-                        Slices startSlices = startSliceFilter.requestedSlices();
-                        Slices endSlices = endSliceFilter.requestedSlices();
+                        Slices startSlices = startSliceFilter.getSlices();
+                        Slices endSlices = endSliceFilter.getSlices();
 
                         if (startSlices.size() > 0)
                             start = startSlices.get(0).start();
