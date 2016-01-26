@@ -21,8 +21,6 @@ import java.util.Iterator;
 
 public interface SearchIterator<K, V> extends Iterator<V>
 {
-    public boolean hasNext();
-
     /**
      * Searches "forwards" (in direction of travel) in the iterator for the required key;
      * if this or any key greater has already been returned by the iterator, the method may

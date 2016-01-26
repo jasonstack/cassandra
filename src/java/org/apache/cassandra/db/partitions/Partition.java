@@ -22,6 +22,7 @@ import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.utils.SearchIterator;
 
 /**
  * In-memory representation of a Partition.
@@ -46,12 +47,15 @@ public interface Partition
      */
     public boolean isEmpty();
 
-    public Row getStaticRow();
-
     /**
      * Returns the row corresponding to the provided clustering, or null if there is not such row.
      */
     public Row getRow(Clustering clustering);
+
+    /**
+     * Returns a search iterator over the unfiltered rows
+     */
+    public SearchIterator<Clustering, Row> unfilteredSearchIterator();
 
     /**
      * Returns an UnfilteredRowIterator over all the rows/RT contained by this partition.

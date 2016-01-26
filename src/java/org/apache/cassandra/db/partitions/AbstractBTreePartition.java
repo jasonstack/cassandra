@@ -24,6 +24,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
 
 import static org.apache.cassandra.utils.btree.BTree.Dir.desc;
@@ -110,11 +111,6 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         return holder().stats;
     }
 
-    public Row getStaticRow()
-    {
-        return staticRow();
-    }
-
     public Row getRow(Clustering clustering)
     {
         if (clustering == Clustering.STATIC_CLUSTERING)
@@ -135,6 +131,11 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
             return activeDeletion.isLive() ? null : BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(activeDeletion));
 
         return row.filter(ColumnFilter.all(metadata), activeDeletion, true, metadata);
+    }
+
+    public SearchIterator<Clustering, Row> rawSearchIterator(boolean reversed)
+    {
+        return BTree.slice(holder().tree, metadata.comparator, BTree.Dir.desc(reversed));
     }
 
     private Row staticRow(Holder current, ColumnFilter columns, boolean setActiveDeletionToRow)
