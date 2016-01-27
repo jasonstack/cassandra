@@ -50,7 +50,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         return comparator;
     }
 
-    protected SearchIterator<V, V> slice(Dir dir)
+    protected BTreeSearchIterator<V, V> slice(Dir dir)
     {
         return BTree.slice(tree, comparator, dir);
     }
@@ -99,13 +99,13 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
     }
 
     @Override
-    public SearchIterator<V, V> iterator()
+    public BTreeSearchIterator<V, V> iterator()
     {
         return slice(Dir.ASC);
     }
 
     @Override
-    public SearchIterator<V, V> descendingIterator()
+    public BTreeSearchIterator<V, V> descendingIterator()
     {
         return slice(Dir.DESC);
     }

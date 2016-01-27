@@ -82,34 +82,76 @@ public class LongBTreeTest
         final int perTreeSelections = 100;
         testRandomSelection(perThreadTrees, perTreeSelections,
         (test) -> {
-            SearchIterator<Integer, Integer> iter1 = test.testAsSet.iterator();
-            SearchIterator<Integer, Integer> iter2 = test.testAsList.iterator();
-            return (key) ->
+            BTreeSearchIterator<Integer, Integer> iter1 = test.testAsSet.iterator();
+            BTreeSearchIterator<Integer, Integer> iter2 = test.slicedIterator.clone();
+            BTreeSearchIterator<Integer, Integer> iter3 = test.testAsList.iterator();
+            class Test implements TestEachKey
             {
-                Integer found1 = iter1.hasNext() ? iter1.next(key) : null;
-                Integer found2 = iter2.hasNext() ? iter2.next(key) : null;
-                Assert.assertSame(found1, found2);
-                if (found1 != null)
-                    Assert.assertEquals(iter1.indexOfCurrent(), iter2.indexOfCurrent());
+                BTreeSearchIterator<Integer, Integer> iter1 = test.testAsSet.iterator();
+                BTreeSearchIterator<Integer, Integer> iter2 = test.slicedIterator.clone();
+                BTreeSearchIterator<Integer, Integer> iter3 = test.testAsList.iterator();
 
-                int index = Collections.binarySearch(test.canonicalList, key, test.comparator);
-                if (index < 0)
+                public void testOne(Integer key)
                 {
-                    Assert.assertNull(found1);
-                }
-                else
-                {
-                    Assert.assertEquals(key, found1);
-                    Assert.assertEquals(index, iter1.indexOfCurrent());
-                }
+                    ThreadLocalRandom random = ThreadLocalRandom.current();
+                    BTreeSearchIterator<Integer, Integer> iter2_ = iter2.clone();
+                    BTreeSearchIterator<Integer, Integer> iter4;
+                    int next = random.nextInt(4);
+                    switch (next)
+                    {
+                        case 0:
+                            iter4 = iter2_.slice(key, true, key, true);
+                            break;
+                        case 1:
+                            iter4 = iter2_.slice(test.ascending ? key - 1 : key + 1, false, key, true);
+                            break;
+                        case 2:
+                            iter4 = iter2_.slice(key, true, test.ascending ? key + 1 : key - 1, false);
+                            break;
+                        case 3:
+                            iter4 = iter2_.slice(test.ascending ? key - 1 : key + 1, false, test.ascending ? key + 1 : key - 1, false);
+                            break;
+                        default:
+                            throw new IllegalStateException();
+                    }
+                    Integer found1 = iter1.hasNext() ? iter1.next(key) : null;
+                    Integer found2 = iter2.hasNext() ? iter2.next(key) : null;
+                    Integer found3 = iter3.hasNext() ? iter3.next(key) : null;
+                    Integer found4 = iter4.hasNext() ? iter4.next(key) : null;
+                    Assert.assertSame(found1, found2);
+                    Assert.assertSame(found1, found3);
+                    Assert.assertSame(found1, found4);
+                    if (found1 != null)
+                    {
+                        Assert.assertEquals(iter1.indexOfCurrent(), iter2.indexOfCurrent());
+                        Assert.assertEquals(iter1.indexOfCurrent(), iter3.indexOfCurrent());
+                    }
 
-                // check that by advancing the same key again we get null, but only do it on one of the two iterators
-                // to ensure they both advance differently
-                if (ThreadLocalRandom.current().nextBoolean())
-                    Assert.assertNull(iter1.next(key));
-                else
-                    Assert.assertNull(iter2.next(key));
-            };
+                    int index = Collections.binarySearch(test.canonicalList, key, test.comparator);
+                    if (index < 0)
+                    {
+                        Assert.assertNull(found1);
+                    }
+                    else
+                    {
+                        Assert.assertEquals(key, found1);
+                        Assert.assertEquals(index, iter1.indexOfCurrent());
+                    }
+
+                    if (random.nextBoolean())
+                        iter2 = iter2_;
+
+                    // check that by advancing the same key again we get null, but only do it on one of the three iterators
+                    // to ensure they both advance differently
+                    float f = ThreadLocalRandom.current().nextFloat();
+                    if (f < 0.33)
+                        Assert.assertNull(iter1.next(key));
+                    else if (f < 0.66)
+                        Assert.assertNull(iter2.next(key));
+                    else
+                        Assert.assertNull(iter3.next(key));
+                }
+            }
         });
     }
 
@@ -331,17 +373,24 @@ public class LongBTreeTest
         final List<Integer> canonicalList;
         final BTreeSet<Integer> testAsSet;
         final BTreeSet<Integer> testAsList;
+        final BTreeSearchIterator<Integer, Integer> slicedIterator;
         final Comparator<Integer> comparator;
+        final boolean ascending;
 
-        private RandomSelection(List<Integer> testKeys, NavigableSet<Integer> canonicalSet, BTreeSet<Integer> testAsSet,
-                                List<Integer> canonicalList, BTreeSet<Integer> testAsList, Comparator<Integer> comparator)
+        private RandomSelection(List<Integer> testKeys, NavigableSet<Integer> canonicalSet,
+                                BTreeSet<Integer> testAsSet,
+                                List<Integer> canonicalList, BTreeSet<Integer> testAsList,
+                                BTreeSearchIterator<Integer, Integer> slicedIterator,
+                                Comparator<Integer> comparator, boolean ascending)
         {
             this.testKeys = testKeys;
             this.canonicalList = canonicalList;
             this.canonicalSet = canonicalSet;
             this.testAsSet = testAsSet;
             this.testAsList = testAsList;
+            this.slicedIterator = slicedIterator;
             this.comparator = comparator;
+            this.ascending = ascending;
         }
     }
 
@@ -366,6 +415,10 @@ public class LongBTreeTest
 
             Assert.assertEquals(canonicalSet.size(), testAsSet.size());
             Assert.assertEquals(canonicalList.size(), testAsList.size());
+
+            boolean reverse = permitReversal && random.nextBoolean();
+            boolean buildSlicedIteratorInReverse = reverse && random.nextBoolean();
+            BTreeSearchIterator<Integer, Integer> slicedIterator = buildSlicedIteratorInReverse ? this.test.descendingIterator() : this.test.iterator();
 
             // sometimes select keys first, so we cover full range
             List<Integer> allKeys = randomKeys(canonical, mixInNotPresentItems);
@@ -423,6 +476,8 @@ public class LongBTreeTest
                 testAsSet = !useLb ? testAsSet.headSet(ubKey, ubInclusive)
                                    : !useUb ? testAsSet.tailSet(lbKey, lbInclusive)
                                             : testAsSet.subSet(lbKey, lbInclusive, ubKey, ubInclusive);
+                slicedIterator = buildSlicedIteratorInReverse ? slicedIterator.clone().slice(useUb ? ubKey : null, ubInclusive, useLb ? lbKey : null, lbInclusive)
+                                                              : slicedIterator.clone().slice(useLb ? lbKey : null, lbInclusive, useUb ? ubKey : null, ubInclusive);
 
                 keys = keys.subList(lbKeyIndex, ubKeyIndex);
                 canonicalList = canonicalList.subList(lbIndex, ubIndex);
@@ -437,7 +492,7 @@ public class LongBTreeTest
                 keys = allKeys;
 
             Comparator<Integer> comparator = naturalOrder();
-            if (permitReversal && random.nextBoolean())
+            if (reverse)
             {
                 if (allKeys != keys)
                     keys = new ArrayList<>(keys);
@@ -446,6 +501,8 @@ public class LongBTreeTest
                 Collections.reverse(keys);
                 Collections.reverse(canonicalList);
                 testAsList = testAsList.descendingSet();
+                if (!buildSlicedIteratorInReverse)
+                    slicedIterator = slicedIterator.reverse();
 
                 canonicalSet = canonicalSet.descendingSet();
                 testAsSet = testAsSet.descendingSet();
@@ -464,7 +521,7 @@ public class LongBTreeTest
                 Assert.assertEquals(canonicalSet.last(), testAsList.get(testAsList.size() - 1));
             }
 
-            return new RandomSelection(keys, canonicalSet, testAsSet, canonicalList, testAsList, comparator);
+            return new RandomSelection(keys, canonicalSet, testAsSet, canonicalList, testAsList, slicedIterator, comparator, !reverse);
         }
     }
 
@@ -528,6 +585,8 @@ public class LongBTreeTest
             for (int i = 0 ; i < nextSize ; i++)
             {
                 Integer next = random.nextInt();
+                if (next == Integer.MIN_VALUE)
+                    next++;
                 ordered.add(next);
                 shuffled.add(next);
                 canonical.add(next);
@@ -584,8 +643,8 @@ public class LongBTreeTest
             }
             else
             {
-                // otherwise we emit a fake value in the range immediately proceeding the last real value, and not
-                // exceeding the real value that would have proceeded (ignoring any other suppressed real values since)
+                // otherwise we emit a fake value in the range immediately following the last real value, and not
+                // exceeding the real value that would have followed (ignoring any other suppressed real values since)
                 if (fakeUb == null)
                     fakeUb = v.longValue() - 1;
                 long mid = (fakeLb + fakeUb) / 2;

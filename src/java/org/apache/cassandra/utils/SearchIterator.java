@@ -44,4 +44,13 @@ public interface SearchIterator<K, V> extends Iterator<V>
      * @throws java.util.NoSuchElementException if next() returned null
      */
     public int indexOfCurrent();
+
+    /**
+     * Returns a new iterator for the sliced range, and moves this iterator *past* the sliced range
+     *
+     * A null lb indicates the current position should be used as a start; a null upper bound means this iterator
+     * is exhausted and its upper bound is transferred to the new iterator (so it doesn't make a lot of sense, but
+     * is provided for completeness and testing)
+     */
+    public SearchIterator<K, V> slice(K lb, boolean lbInclusive, K ub, boolean ubInclusive);
 }

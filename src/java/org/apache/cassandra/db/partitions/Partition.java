@@ -53,11 +53,6 @@ public interface Partition
     public Row getRow(Clustering clustering);
 
     /**
-     * Returns a search iterator over the unfiltered rows
-     */
-    public SearchIterator<Clustering, Row> unfilteredSearchIterator();
-
-    /**
      * Returns an UnfilteredRowIterator over all the rows/RT contained by this partition.
      */
     public UnfilteredRowIterator unfilteredIterator();

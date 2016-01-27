@@ -24,10 +24,8 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.*;
-import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
-
-import static org.apache.cassandra.utils.btree.BTree.Dir.desc;
+import org.apache.cassandra.utils.btree.BTreeSearchIterator;
 
 public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
 {
@@ -115,8 +113,8 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
     {
         if (clustering == Clustering.STATIC_CLUSTERING)
         {
-            Row row = getStaticRow();
-            return row == null || (clustering == Clustering.STATIC_CLUSTERING && row.isEmpty()) ? null : row;
+            Row row = staticRow();
+            return row.isEmpty() ? null : row;
         }
 
         Holder holder = holder();
@@ -131,11 +129,6 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
             return activeDeletion.isLive() ? null : BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(activeDeletion));
 
         return row.filter(ColumnFilter.all(metadata), activeDeletion, true, metadata);
-    }
-
-    public SearchIterator<Clustering, Row> rawSearchIterator(boolean reversed)
-    {
-        return BTree.slice(holder().tree, metadata.comparator, BTree.Dir.desc(reversed));
     }
 
     private Row staticRow(Holder current, ColumnFilter columns, boolean setActiveDeletionToRow)
@@ -168,15 +161,24 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         }
 
         return slices.size() == 1
-               ? sliceIterator(selection, slices.get(0), reversed, current, staticRow)
+               ? sliceIterator(BTree.slice(current.tree, metadata.comparator, BTree.Dir.desc(reversed)),
+                               selection, slices.get(0), reversed, current, staticRow)
                : new SlicesIterator(selection, slices, reversed, current, staticRow);
     }
 
-    private UnfilteredRowIterator sliceIterator(ColumnFilter selection, Slice slice, boolean reversed, Holder current, Row staticRow)
+    private UnfilteredRowIterator sliceIterator(BTreeSearchIterator<Clusterable, Row> sliceFrom, ColumnFilter selection, Slice slice, boolean reversed, Holder current, Row staticRow)
     {
         Slice.Bound start = slice.start() == Slice.Bound.BOTTOM ? null : slice.start();
         Slice.Bound end = slice.end() == Slice.Bound.TOP ? null : slice.end();
-        Iterator<Row> rowIter = BTree.slice(current.tree, metadata.comparator, start, true, end, true, desc(reversed));
+        if (reversed)
+        {
+            Slice.Bound temp = start;
+            start = end;
+            end = temp;
+        }
+
+        Iterator<Row> rowIter = sliceFrom.slice(start, start != null && start.isInclusive(),
+                                                end, end != null && end.isInclusive());
         Iterator<RangeTombstone> deleteIter = current.deletionInfo.rangeIterator(slice, reversed);
 
         return merge(rowIter, deleteIter, selection, reversed, current, staticRow);
@@ -198,6 +200,7 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         private final ColumnFilter selection;
 
         private int idx;
+        private BTreeSearchIterator<Clusterable, Row> mainIterator;
         private Iterator<Unfiltered> currentSlice;
 
         private SlicesIterator(ColumnFilter selection,
@@ -218,6 +221,7 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
             this.current = current;
             this.selection = selection;
             this.slices = slices;
+            this.mainIterator = BTree.slice(current.tree, metadata.comparator, BTree.Dir.desc(isReversed));
         }
 
         protected Unfiltered computeNext()
@@ -230,7 +234,7 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
                         return endOfData();
 
                     int sliceIdx = isReverseOrder ? slices.size() - idx - 1 : idx;
-                    currentSlice = sliceIterator(selection, slices.get(sliceIdx), isReverseOrder, current, Rows.EMPTY_STATIC_ROW);
+                    currentSlice = sliceIterator(mainIterator, selection, slices.get(sliceIdx), isReverseOrder, current, Rows.EMPTY_STATIC_ROW);
                     idx++;
                 }
 
