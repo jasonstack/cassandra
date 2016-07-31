@@ -251,7 +251,7 @@ public abstract class CQLTester
         logger.info(fullQuery);
         try
         {
-            QueryProcessor.executeOnceInternal(fullQuery);
+            SecurityQueryProcessor.executeOnceInternal(fullQuery);
         }
         catch (RuntimeException ex)
         {
@@ -272,7 +272,7 @@ public abstract class CQLTester
         logger.info(fullQuery);
         try
         {
-            QueryProcessor.executeOnceInternal(fullQuery);
+            SecurityQueryProcessor.executeOnceInternal(fullQuery);
         }
         catch (RuntimeException ex)
         {
@@ -331,7 +331,7 @@ public abstract class CQLTester
         logger.info(fullQuery);
         try
         {
-            QueryProcessor.executeOnceInternal(fullQuery);
+            SecurityQueryProcessor.executeOnceInternal(fullQuery);
         }
         catch (RuntimeException ex)
         {
@@ -351,7 +351,7 @@ public abstract class CQLTester
         try
         {
             // executeOnceInternal don't work for schema changes
-            QueryProcessor.executeOnceInternal(query);
+            SecurityQueryProcessor.executeOnceInternal(query);
         }
         catch (Exception e)
         {
@@ -374,13 +374,13 @@ public abstract class CQLTester
             if (USE_PREPARED_VALUES)
             {
                 logger.info("Executing: {} with values {}", query, formatAllValues(values));
-                rs = QueryProcessor.executeOnceInternal(query, transformValues(values));
+                rs = SecurityQueryProcessor.executeOnceInternal(query, transformValues(values));
             }
             else
             {
                 query = replaceValues(query, values);
                 logger.info("Executing: {}", query);
-                rs = QueryProcessor.executeOnceInternal(query);
+                rs = SecurityQueryProcessor.executeOnceInternal(query);
             }
             if (rs != null)
                 logger.info("Got {} rows", rs.size());
@@ -650,7 +650,7 @@ public abstract class CQLTester
     // We're rellly only returning ByteBuffers but this make the type system happy
     private static Object[] transformValues(Object[] values)
     {
-        // We could partly rely on QueryProcessor.executeOnceInternal doing type conversion for us, but
+        // We could partly rely on SecurityQueryProcessor.executeOnceInternal doing type conversion for us, but
         // it would complain with ClassCastException if we pass say a string where an int is excepted (since
         // it bases conversion on what the value should be, not what it is). For testing, we sometimes
         // want to pass value of the wrong type and assert that this properly raise an InvalidRequestException

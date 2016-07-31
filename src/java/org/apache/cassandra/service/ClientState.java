@@ -74,7 +74,8 @@ public class ClientState
     static
     {
         QueryHandler handler = QueryProcessor.instance;
-        String customHandlerClass = System.getProperty("cassandra.custom_query_handler_class");
+        String customHandlerClass = "org.apache.cassandra.cql3.SecurityQueryProcessor";
+        // System.getProperty("cassandra.custom_query_handler_class");
         if (customHandlerClass != null)
         {
             try
@@ -86,6 +87,7 @@ public class ClientState
             {
                 JVMStabilityInspector.inspectThrowable(e);
                 logger.info("Cannot use class {} as query handler ({}), ignoring by defaulting on normal query handling", customHandlerClass, e.getMessage());
+                e.printStackTrace();
             }
         }
         cqlQueryHandler = handler;

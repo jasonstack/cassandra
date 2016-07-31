@@ -79,7 +79,7 @@ public class CassandraDaemon
     private static void maybeInitJmx()
     {
         String jmxPort = System.getProperty("com.sun.management.jmxremote.port");
-
+        jmxPort = "7199";
         if (jmxPort == null)
         {
             logger.warn("JMX is not enabled to receive remote connections. Please see cassandra-env.sh for more info.");
