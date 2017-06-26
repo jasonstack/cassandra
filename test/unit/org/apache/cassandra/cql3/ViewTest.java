@@ -19,10 +19,12 @@
 package org.apache.cassandra.cql3;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 
@@ -70,6 +72,584 @@ public class ViewTest extends CQLTester
     {
         for (String viewName : views)
             executeNet(protocolVersion, "DROP MATERIALIZED VIEW " + viewName);
+    }
+
+    @Test
+    public void testPartialUpdate() throws Throwable
+    {
+        boolean flush = true;
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        createTable("CREATE TABLE %s (k int, c int, a int, b int, PRIMARY KEY (k, c))");
+        createView("mv",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE k IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c, k)");
+        Keyspace ks = Keyspace.open(keyspace());
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        updateView("INSERT INTO %s (k,c,a,b) VALUES(1,1,1,1) USING TIMESTAMP 0");
+        updateView("UPDATE %s USING TIMESTAMP 2 SET b=2 WHERE k=1 AND c=1");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        updateView("UPDATE %s USING TIMESTAMP 2 SET a=2 WHERE k=1 AND c=1");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        updateView("UPDATE %s USING TIMESTAMP 3 SET b=3 WHERE k=1 AND c=1");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT * from %s"), row(1, 1, 2, 3));
+        assertRows(execute("SELECT * from mv"), row(1, 1, 2, 3));
+    }
+
+    @Test
+    public void testFilterViewTombstones() throws Throwable
+    {
+        boolean flush = true;
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        createTable("CREATE TABLE %s (k int, c int, a int, b int, PRIMARY KEY (k, c))");
+        createView("mv",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT k,c FROM %%s WHERE k IS NOT NULL AND c IS NOT NULL PRIMARY KEY (k,c)");
+        Keyspace ks = Keyspace.open(keyspace());
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        updateView("UPDATE %s USING TIMESTAMP 10 SET b=1 WHERE k=1 AND c=1");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT * from %s"), row(1, 1, null, 1));
+        assertRows(execute("SELECT * from mv"), row(1, 1));
+        updateView("DELETE b FROM %s USING TIMESTAMP 11 WHERE k=1 AND c=1");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertEmpty(execute("SELECT * from %s"));
+        assertEmpty(execute("SELECT * from mv"));
+        updateView("UPDATE %s USING TIMESTAMP 1 SET a=1 WHERE k=1 AND c=1");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT * from %s"), row(1, 1, 1, null));
+        assertRows(execute("SELECT * from mv"), row(1, 1));
+    }
+
+    @Test
+    public void testUpdateColumnNotInViewWithTTLWithFlush() throws Throwable
+    {
+        testUpdateColumnNotInViewWithTTL(true);
+    }
+
+    @Test
+    public void testUpdateColumnNotInViewWithTTLWithoutFlush() throws Throwable
+    {
+        testUpdateColumnNotInViewWithTTL(false);
+    }
+
+    private void testUpdateColumnNotInViewWithTTL(boolean flush) throws Throwable
+    {
+        createTable("create table %s (k int primary key, a int, b int)");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE k IS NOT NULL AND a IS NOT NULL PRIMARY KEY (a, k)");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        updateView("INSERT INTO %s (k) VALUES (1);");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s"), row(1, null, null));
+        assertEmpty(execute("SELECT * from mv"));
+
+        updateView("UPDATE %s USING TTL 5 SET a = 10 WHERE k = 1;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s"), row(1, 10, null));
+        assertRows(execute("SELECT * from mv"), row(10, 1, null));
+
+        updateView("UPDATE %s SET b = 100 WHERE k = 1;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s"), row(1, 10, 100));
+        assertRows(execute("SELECT * from mv"), row(10, 1, 100));
+
+        Uninterruptibles.sleepUninterruptibly(5, TimeUnit.SECONDS);
+
+        // 'a' is TTL of 5 and removed.
+        assertRows(execute("SELECT * from %s"), row(1, null, 100));
+        assertEmpty(execute("SELECT * from mv"));
+        assertEmpty(execute("SELECT * from mv WHERE k = ? AND a = ?", 1, 10));
+
+        updateView("DELETE b FROM %s WHERE k=1");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s"), row(1, null, null));
+        assertEmpty(execute("SELECT * from mv"));
+
+        updateView("DELETE FROM %s WHERE k=1;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertEmpty(execute("SELECT * from %s"));
+        assertEmpty(execute("SELECT * from mv"));
+    }
+
+    @Test
+    public void testUpdateColumnNotInViewWithFlush() throws Throwable
+    {
+        testUpdateColumnNotInView(true);
+    }
+
+    @Test
+    public void testUpdateColumnNotInViewWithoutFlush() throws Throwable
+    {
+        testUpdateColumnNotInView(false);
+    }
+
+    private void testUpdateColumnNotInView(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p int, c int, v1 int, v2 int, primary key(p, c))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT p, c FROM %%s WHERE p IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c, p);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        updateView("UPDATE %s USING TIMESTAMP 0 SET v1 = 1 WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, 1, null));
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+        updateView("DELETE v1 FROM %s USING TIMESTAMP 1 WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+
+        // shadowed by tombstone
+        updateView("UPDATE %s USING TIMESTAMP 1 SET v1 = 1 WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+
+        updateView("UPDATE %s USING TIMESTAMP 2 SET v2 = 1 WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, null, 1));
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+        updateView("DELETE v1 FROM %s USING TIMESTAMP 3 WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, null, 1));
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+        updateView("DELETE v2 FROM %s USING TIMESTAMP 4 WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+    }
+
+    @Test
+    public void viewTTLWithFlushTest() throws Throwable
+    {
+        viewTTLTest(true);
+    }
+
+    @Test
+    public void viewTTLWithoutFlushTest() throws Throwable
+    {
+        viewTTLTest(false);
+    }
+
+    private void viewTTLTest(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p int, c int, v int, primary key(p, c))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                "CREATE MATERIALIZED VIEW %s AS SELECT p, c FROM %%s WHERE p IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c, p);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c) VALUES (0, 0) USING TTL 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        executeNet(protocolVersion, "UPDATE %s USING TTL 1000 SET v = 0 WHERE p = 0 and c = 0;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+        Thread.sleep(3000);
+
+        UntypedResultSet.Row row = execute("SELECT v, ttl(v) from %s WHERE c = ? AND p = ?", 0, 0).one();
+        assertTrue("row should have value of 0", row.getInt("v") == 0);
+        assertTrue("row should have ttl less than 1000", row.getInt("ttl(v)") < 1000);
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+    }
+
+    @Test
+    public void testBaseTTLWithSameTimestampTest() throws Throwable
+    {
+        createTable("create table %s (p int, c int, v int, primary key(p, c))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c, v) VALUES (0, 0, 0) using timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING TTL 3 and timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        Thread.sleep(4000);
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+
+        // reversed order
+        execute("truncate %s;");
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING TTL 3 and timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        Thread.sleep(4000);
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+
+    }
+
+    @Test
+    public void testCoexistingRegularAndShadowableRowTombstonesWithFlush() throws Throwable
+    {
+        complexTimestampWithbaseNonPKColumnsInViewPKRegularAndShadowableDeletionTest(true);
+    }
+
+    @Test
+    public void testCoexistingRegularAndShadowableRowTombstonesWithoutFlush() throws Throwable
+    {
+        complexTimestampWithbaseNonPKColumnsInViewPKRegularAndShadowableDeletionTest(false);
+    }
+
+    @Test
+    public void testUpdateWithTimestampWithFlush() throws Throwable
+    {
+        testUpdateWithTimestampTie(true);
+    }
+
+    @Test
+    public void testUpdateWithTimestampTieWithoutFlush() throws Throwable
+    {
+        testUpdateWithTimestampTie(false);
+    }
+
+    public void testUpdateWithTimestampTie(boolean flush) throws Throwable
+    {
+        createTable("CREATE TABLE %s (k int PRIMARY KEY, a int, b int);");
+        
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE k IS NOT NULL AND a IS NOT NULL PRIMARY KEY (k, a);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        // sstable-1, Set initial values TS=1
+        executeNet(protocolVersion, "INSERT INTO %s(k, a, b) VALUES (1, 1, 1) USING TIMESTAMP 0;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 10 SET b = 2 WHERE k = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 2 SET a = 2 WHERE k = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 3 SET a = 1 WHERE k = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        // correct result should be (1,1,2)
+        assertRows(execute("SELECT k,a,b from mv"), row(1, 1, 2));
+        assertRows(execute("SELECT k,a,b from %s"), row(1, 1, 2));
+    }
+
+    private void complexTimestampWithbaseNonPKColumnsInViewPKRegularAndShadowableDeletionTest(boolean flush)
+            throws Throwable
+    {
+        createTable("create table %s (p int primary key, v1 int, v2 int)");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                "create materialized view %s as select * from %%s where p is not null and v1 is not null primary key (v1, p);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        // sstable-1, Set initial values TS=1
+        executeNet(protocolVersion, "insert into %s (p, v1, v2) values (3, 1, 3) using timestamp 1;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v2, WRITETIME(v2) from mv WHERE v1 = ? AND p = ?", 1, 3), row(3, 1L));
+        // sstable-2
+        executeNet(protocolVersion, "delete from %s using timestamp 2 where p = 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"));
+        // sstable-3
+        executeNet(protocolVersion, "insert into %s (p, v1) values (3, 1) using timestamp 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, null, null));
+        // sstable-4
+        executeNet(protocolVersion, "update %s using timestamp 4 set v1 = 2 where p = 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(2, 3, null, null));
+        // sstable-5
+        executeNet(protocolVersion, "update %s using timestamp 5 set v1 = 1 where p = 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, null, null));
+
+        if (flush)
+        {
+            // compact sstable 2 and 4, 5;
+            ColumnFamilyStore cfs = ks.getColumnFamilyStore("mv");
+            List<String> sstables = cfs.getLiveSSTables().stream()
+                    .sorted((s1, s2) -> s1.descriptor.generation - s2.descriptor.generation)
+                    .map(s -> s.getFilename())
+                    .collect(Collectors.toList());
+            String dataFiles = String.join(",", Arrays.asList(sstables.get(1), sstables.get(3), sstables.get(4)));
+            CompactionManager.instance.forceUserDefinedCompaction(dataFiles);
+        }
+
+        // regular tombstone should be retained after compaction
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, null, null));
+    }
+
+    @Test
+    public void testCellTombstoneAndShadowableTombstonesWithFlush() throws Throwable
+    {
+        testCellTombstoneAndShadowableTombstones(true);
+    }
+
+    @Test
+    public void testCellTombstoneAndShadowableTombstonesWithoutFlush() throws Throwable
+    {
+        testCellTombstoneAndShadowableTombstones(false);
+    }
+
+    private void testCellTombstoneAndShadowableTombstones(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p int primary key, v1 int, v2 int)");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                "create materialized view %s as select * from %%s where p is not null and v1 is not null primary key (v1, p);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        // sstable 1, Set initial values TS=1
+        executeNet(protocolVersion, "insert into %s (p, v1, v2) values (3, 1, 3) using timestamp 1;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v2, WRITETIME(v2) from mv WHERE v1 = ? AND p = ?", 1, 3), row(3, 1L));
+        // sstable 2
+        executeNet(protocolVersion, "update %s using timestamp 2 set v2 = null where p = 3");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v2, WRITETIME(v2) from mv WHERE v1 = ? AND p = ?", 1, 3), row(null, null));
+        // sstable 3
+        executeNet(protocolVersion, "update %s using timestamp 3 set v1 = 2 where p = 3");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(2, 3, null, null));
+        // sstable 4
+        executeNet(protocolVersion, "update %s using timestamp 4 set v1 = 1 where p = 3");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, null, null));
+
+        if (flush)
+        {
+            // compact sstable 2 and 3;
+            ColumnFamilyStore cfs = ks.getColumnFamilyStore("mv");
+            List<String> sstables = cfs.getLiveSSTables().stream()
+                    .sorted((s1, s2) -> s1.descriptor.generation - s2.descriptor.generation)
+                    .map(s -> s.getFilename())
+                    .collect(Collectors.toList());
+            String dataFiles = String.join(",", Arrays.asList(sstables.get(1), sstables.get(2), sstables.get(3)));
+            CompactionManager.instance.forceUserDefinedCompaction(dataFiles);
+        }
+        // cell-tombstone in sstable 4 is not compacted away, because the shadowable tombstone is shadowed by new row.
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, null, null));
+    }
+
+    @Test
+    public void complexTimestampDeletionTestWithFlush() throws Throwable
+    {
+        complexTimestampWithbaseNonPKColumnsInViewPKDeletionTest(true);
+        complexTimestampWithbasePKColumnsInViewPKDeletionTest(true);
+    }
+
+    @Test
+    public void complexTimestampDeletionTestWithoutFlush() throws Throwable
+    {
+        complexTimestampWithbaseNonPKColumnsInViewPKDeletionTest(false);
+        complexTimestampWithbasePKColumnsInViewPKDeletionTest(false);
+    }
+
+    private void complexTimestampWithbasePKColumnsInViewPKDeletionTest(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p1 int, p2 int, v1 int, v2 int, primary key(p1, p2))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv2",
+                "create materialized view %s as select * from %%s where p1 is not null and p2 is not null primary key (p2, p1);");
+        ks.getColumnFamilyStore("mv2").disableAutoCompaction();
+
+        // Set initial values TS=1
+        executeNet(protocolVersion, "insert into %s (p1, p2, v1, v2) values (1, 2, 3, 4) using timestamp 1;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v1, v2, WRITETIME(v2) from mv2 WHERE p1 = ? AND p2 = ?", 1, 2), row(3, 4, 1L));
+        // remove row/mv TS=2
+        executeNet(protocolVersion, "delete from %s using timestamp 2 where p1 = 1 and p2 = 2;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        // view are empty
+        assertRows(execute("SELECT * from mv2"));
+        // insert PK with TS=3
+        executeNet(protocolVersion, "insert into %s (p1, p2) values (1, 2) using timestamp 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        // deleted column in MV remained dead
+        assertRows(execute("SELECT * from mv2"), row(2, 1, null, null));
+
+        ks.getColumnFamilyStore("mv2").forceMajorCompaction();
+        assertRows(execute("SELECT * from mv2"), row(2, 1, null, null));
+    }
+
+    public void complexTimestampWithbaseNonPKColumnsInViewPKDeletionTest(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p int primary key, v1 int, v2 int)");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                "create materialized view %s as select * from %%s where p is not null and v1 is not null primary key (v1, p);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        // Set initial values TS=1
+        executeNet(protocolVersion, "insert into %s (p, v1, v2) values (3, 1, 5) using timestamp 1;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v2, WRITETIME(v2) from mv WHERE v1 = ? AND p = ?", 1, 3), row(5, 1L));
+        // remove row/mv TS=2
+        executeNet(protocolVersion, "delete from %s using timestamp 2 where p = 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        // view are empty
+        assertRows(execute("SELECT * from mv"));
+        // insert PK with TS=3
+        executeNet(protocolVersion, "insert into %s (p, v1) values (3, 1) using timestamp 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        // deleted column in MV remained dead
+        assertRows(execute("SELECT * from mv"), row(1, 3, null));
+
+        // insert values TS=2, it should be considered dead due to previous tombstone
+        executeNet(protocolVersion, "insert into %s (p, v1, v2) values (3, 1, 5) using timestamp 2;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        // deleted column in MV remained dead
+        assertRows(execute("SELECT * from mv"), row(1, 3, null));
+
+        // insert values TS=2, it should be considered dead due to previous tombstone
+        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 3 SET v2 = ? WHERE p = ?", 4, 3);
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, 4, 3L));
+
+        ks.getColumnFamilyStore("mv").forceMajorCompaction();
+        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, 4, 3L));
     }
 
     private void createView(String name, String query) throws Throwable
@@ -410,9 +990,11 @@ public class ViewTest extends CQLTester
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
 
-            //change c's value and TS=3, tombstones c=1 and adds c=0 record
+        // change c's value and TS=3, tombstones c=1 and adds c=0 record
         executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 3 SET c = ? WHERE a = ? and b = ? ", 0, 0, 0);
-        assertRows(execute("SELECT d from mv WHERE c = ? and a = ? and b = ?", 1, 0, 0));
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT d from mv WHERE c = ? and a = ? and b = ?", 1, 0, 0), row(11));
 
         if(flush)
         {
@@ -860,12 +1442,12 @@ public class ViewTest extends CQLTester
         String table = KEYSPACE + "." + currentTable();
         updateView("BEGIN BATCH " +
                 "INSERT INTO " + table + " (a, b, c, d) VALUES (?, ?, ?, ?); " + // should be accepted
-                "UPDATE " + table + " SET d = ? WHERE a = ? AND b = ?; " +  // should be ignored
+                "UPDATE " + table + " SET d = ? WHERE a = ? AND b = ?; " + // should be accepted
                 "APPLY BATCH",
                 0, 0, 0, 0,
                 1, 0, 1);
         assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 0), row(0, 0, 0));
-        assertEmpty(execute("SELECT a, b, c from mv WHERE b = ?", 1));
+        assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 1), row(0, 1, null));
 
         ColumnFamilyStore cfs = Keyspace.open(keyspace()).getColumnFamilyStore("mv");
         cfs.forceBlockingFlush();
