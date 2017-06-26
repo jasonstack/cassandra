@@ -72,6 +72,89 @@ public class ViewTest extends CQLTester
             executeNet(protocolVersion, "DROP MATERIALIZED VIEW " + viewName);
     }
 
+    @Test
+    public void viewTTLWithFlushTest() throws Throwable
+    {
+        viewTTLTest(true);
+    }
+
+    @Test
+    public void viewTTLWithoutFlushTest() throws Throwable
+    {
+        viewTTLTest(false);
+    }
+
+    private void viewTTLTest(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p int, c int, v int, primary key(p, c))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                "CREATE MATERIALIZED VIEW %s AS SELECT p, c FROM %%s WHERE p IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c, p);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c) VALUES (0, 0) USING TTL 3;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        executeNet(protocolVersion, "UPDATE %s USING TTL 1000 SET v = 0 WHERE p = 0 and c = 0;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+        Thread.sleep(3000);
+
+        UntypedResultSet.Row row = execute("SELECT v, ttl(v) from %s WHERE c = ? AND p = ?", 0, 0).one();
+        assertTrue("row should have value of 0", row.getInt("v") == 0);
+        assertTrue("row should have ttl less than 1000", row.getInt("ttl(v)") < 1000);
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+    }
+
+    @Test
+    public void testBaseTTLWithSameTimestampTest() throws Throwable
+    {
+        createTable("create table %s (p int, c int, v int, primary key(p, c))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c, v) VALUES (0, 0, 0) using timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING TTL 3 and timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        Thread.sleep(4000);
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+
+        // reversed order
+        execute("truncate %s;");
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING TTL 3 and timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        executeNet(protocolVersion, "INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        Thread.sleep(4000);
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+
+    }
+
     private void createView(String name, String query) throws Throwable
     {
         executeNet(protocolVersion, String.format(query, name));
