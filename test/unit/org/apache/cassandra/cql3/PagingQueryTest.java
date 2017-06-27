@@ -19,6 +19,7 @@
 package org.apache.cassandra.cql3;
 
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.junit.Test;
@@ -32,6 +33,30 @@ import static org.junit.Assert.assertTrue;
 
 public class PagingQueryTest extends CQLTester
 {
+    @Test
+    public void pagingOnToJsonQuery() throws Throwable
+    {
+        // CASSANDRA-13592
+        createTable("CREATE TABLE %s (" +
+                " k1 int," +
+                " c1 int," +
+                " v1 text," +
+                "PRIMARY KEY (k1, c1))");
+
+        int size = 100;
+        for (int c1 = 0; c1 < size; c1++)
+        {
+            execute("INSERT INTO %s (k1, c1, v1) VALUES (?, ?, ?)", 1, c1, Integer.toString(c1));
+        }
+        SimpleStatement stmt = new SimpleStatement(
+                "SELECT JSON * FROM " + KEYSPACE + '.' + currentTable() + " WHERE k1 = 1");
+        stmt.setFetchSize(5);
+
+        ResultSet rs = sessionNet().execute(stmt);
+        List<Row> all = rs.all();
+        assertEquals(size, all.size());
+    }
+
     @Test
     public void pagingOnRegularColumn() throws Throwable
     {
@@ -59,45 +84,44 @@ public class PagingQueryTest extends CQLTester
 
         flush();
 
-        try (Session session = sessionNet())
+        Session session = sessionNet();
+        
+        SimpleStatement stmt = new SimpleStatement("SELECT c1, c2, v1, v2 FROM " + KEYSPACE + '.' + currentTable() + " WHERE k1 = 1");
+        stmt.setFetchSize(3);
+        ResultSet rs = session.execute(stmt);
+        Iterator<Row> iter = rs.iterator();
+        for (int c1 = 0; c1 < 100; c1++)
         {
-            SimpleStatement stmt = new SimpleStatement("SELECT c1, c2, v1, v2 FROM " + KEYSPACE + '.' + currentTable() + " WHERE k1 = 1");
-            stmt.setFetchSize(3);
-            ResultSet rs = session.execute(stmt);
-            Iterator<Row> iter = rs.iterator();
-            for (int c1 = 0; c1 < 100; c1++)
+            for (int c2 = 0; c2 < 100; c2++)
             {
-                for (int c2 = 0; c2 < 100; c2++)
-                {
-                    assertTrue(iter.hasNext());
-                    Row row = iter.next();
-                    String msg = "On " + c1 + ',' + c2;
-                    assertEquals(msg, c1, row.getInt(0));
-                    assertEquals(msg, c2, row.getInt(1));
-                    assertEquals(msg, Integer.toString(c1), row.getString(2));
-                    assertEquals(msg, Integer.toString(c2), row.getString(3));
-                }
+                assertTrue(iter.hasNext());
+                Row row = iter.next();
+                String msg = "On " + c1 + ',' + c2;
+                assertEquals(msg, c1, row.getInt(0));
+                assertEquals(msg, c2, row.getInt(1));
+                assertEquals(msg, Integer.toString(c1), row.getString(2));
+                assertEquals(msg, Integer.toString(c2), row.getString(3));
+            }
+        }
+        assertFalse(iter.hasNext());
+
+        for (int c1 = 0; c1 < 100; c1++)
+        {
+            stmt = new SimpleStatement("SELECT c1, c2, v1, v2 FROM " + KEYSPACE + '.' + currentTable() + " WHERE k1 = 1 AND c1 = ?", c1);
+            stmt.setFetchSize(3);
+            rs = session.execute(stmt);
+            iter = rs.iterator();
+            for (int c2 = 0; c2 < 100; c2++)
+            {
+                assertTrue(iter.hasNext());
+                Row row = iter.next();
+                String msg = "Within " + c1 + " on " + c2;
+                assertEquals(msg, c1, row.getInt(0));
+                assertEquals(msg, c2, row.getInt(1));
+                assertEquals(msg, Integer.toString(c1), row.getString(2));
+                assertEquals(msg, Integer.toString(c2), row.getString(3));
             }
             assertFalse(iter.hasNext());
-
-            for (int c1 = 0; c1 < 100; c1++)
-            {
-                stmt = new SimpleStatement("SELECT c1, c2, v1, v2 FROM " + KEYSPACE + '.' + currentTable() + " WHERE k1 = 1 AND c1 = ?", c1);
-                stmt.setFetchSize(3);
-                rs = session.execute(stmt);
-                iter = rs.iterator();
-                for (int c2 = 0; c2 < 100; c2++)
-                {
-                    assertTrue(iter.hasNext());
-                    Row row = iter.next();
-                    String msg = "Within " + c1 + " on " + c2;
-                    assertEquals(msg, c1, row.getInt(0));
-                    assertEquals(msg, c2, row.getInt(1));
-                    assertEquals(msg, Integer.toString(c1), row.getString(2));
-                    assertEquals(msg, Integer.toString(c2), row.getString(3));
-                }
-                assertFalse(iter.hasNext());
-            }
         }
     }
 

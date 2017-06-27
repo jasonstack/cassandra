@@ -265,7 +265,7 @@ public abstract class Selection
             if (buffer == null)
                 sb.append("null");
             else
-                sb.append(spec.type.toJSONString(buffer, protocolVersion));
+                sb.append(spec.type.toJSONString(buffer.duplicate(), protocolVersion));
         }
         sb.append("}");
         return Collections.singletonList(UTF8Type.instance.getSerializer().serialize(sb.toString()));
