@@ -28,6 +28,8 @@ import java.util.Iterator;
 import java.util.List;
 
 import com.google.common.primitives.Ints;
+import com.sun.java_cup.internal.runtime.virtual_parse_stack;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -51,6 +53,7 @@ import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredSerializer;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.IndexInfo;
@@ -141,6 +144,7 @@ public class RowIndexEntryTest extends CQLTester
         DeletionTime deletionInfo = new DeletionTime(FBUtilities.timestampMicros(), FBUtilities.nowInSeconds());
         LivenessInfo primaryKeyLivenessInfo = LivenessInfo.EMPTY;
         DeletionTime deletion = DeletionTime.LIVE;
+        VirtualCells virtualCells = VirtualCells.EMPTY;
 
         SerializationHeader header = new SerializationHeader(true, metadata, metadata.regularAndStaticColumns(), EncodingStats.NO_STATS);
 
@@ -232,7 +236,7 @@ public class RowIndexEntryTest extends CQLTester
             builder.add(BufferCell.live(metadata.regularAndStaticColumns().iterator().next(),
                                         1L,
                                         ByteBuffer.allocate(0)));
-            return BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, builder.build());
+            return BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, virtualCells, builder.build());
         }
     }
 

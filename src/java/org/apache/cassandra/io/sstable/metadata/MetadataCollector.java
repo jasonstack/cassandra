@@ -33,6 +33,7 @@ import org.apache.cassandra.db.commitlog.IntervalSet;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -404,5 +405,13 @@ public class MetadataCollector implements PartitionStatisticsCollector
         {
             return isSet ? max : defaultMax;
         }
+    }
+
+    @Override
+    public void update(VirtualCells virtualCells)
+    {
+        if (virtualCells.isEmpty())
+            return;
+        // FIXME for now, no need
     }
 }

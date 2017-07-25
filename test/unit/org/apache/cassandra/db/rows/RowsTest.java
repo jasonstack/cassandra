@@ -42,6 +42,7 @@ import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
@@ -168,6 +169,16 @@ public class RowsTest
             complexDeletions.get(column).add(MergedPair.create(i, merged, original));
             updates++;
         }
+
+        List<MergedPair<VirtualCells>> virtualCellsLIst = new LinkedList<>();
+
+        @Override
+        public void onVirtualCells(int i, Clustering clustering, VirtualCells merged, VirtualCells original)
+        {
+            updateClustering(clustering);
+            virtualCellsLIst.add(MergedPair.create(i, merged, original));
+            updates++;
+        }
     }
 
     public static class StatsCollector implements PartitionStatisticsCollector
@@ -201,6 +212,14 @@ public class RowsTest
         public void updateHasLegacyCounterShards(boolean hasLegacyCounterShards)
         {
             this.hasLegacyCounterShards |= hasLegacyCounterShards;
+        }
+
+        List<VirtualCells> virtualCellsList = new LinkedList<>();
+
+        @Override
+        public void update(VirtualCells virtualCells)
+        {
+            virtualCellsList.add(virtualCells);
         }
     }
 

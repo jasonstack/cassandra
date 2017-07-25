@@ -19,6 +19,7 @@ package org.apache.cassandra.db.rows;
 
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 
 /**
  * Interface that allows to act on the result of merging multiple rows.
@@ -51,6 +52,8 @@ public interface RowDiffListener
      * @param original the deletion of input {@code i}. May be {@code null} if input {@code i} had no deletion but the merged row has.
      */
     public void onDeletion(int i, Clustering clustering, DeletionTime merged, DeletionTime original);
+
+    public void onVirtualCells(int i, Clustering clustering, VirtualCells merged, VirtualCells original);
 
     /**
      * Called for every (non-live) complex deletion of any complex column present in either the merged row of input {@code i}.

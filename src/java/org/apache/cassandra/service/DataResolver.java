@@ -35,6 +35,7 @@ import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.DataLimits.Counter;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 import org.apache.cassandra.db.transform.MoreRows;
 import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
@@ -199,24 +200,35 @@ public class DataResolver extends ResponseResolver
 
                 this.diffListener = new RowDiffListener()
                 {
+                    @Override
                     public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original)
                     {
                         if (merged != null && !merged.equals(original))
                             currentRow(i, clustering).addPrimaryKeyLivenessInfo(merged);
                     }
 
+                    @Override
                     public void onDeletion(int i, Clustering clustering, DeletionTime merged, DeletionTime original)
                     {
                         if (merged != null && !merged.equals(original))
                             currentRow(i, clustering).addRowDeletion(merged);
                     }
 
+                    @Override
+                    public void onVirtualCells(int i, Clustering clustering, VirtualCells merged, VirtualCells original)
+                    {
+                        if (merged != null && !merged.equals(original))// it's ok to be the same
+                            currentRow(i, clustering).addVirtualCells(merged);
+                    }
+
+                    @Override
                     public void onComplexDeletion(int i, Clustering clustering, ColumnMetadata column, DeletionTime merged, DeletionTime original)
                     {
                         if (merged != null && !merged.equals(original))
                             currentRow(i, clustering).addComplexDeletion(column, merged);
                     }
 
+                    @Override
                     public void onCell(int i, Clustering clustering, Cell merged, Cell original)
                     {
                         if (merged != null && !merged.equals(original) && isQueried(merged))

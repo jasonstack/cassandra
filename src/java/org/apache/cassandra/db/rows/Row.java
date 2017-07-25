@@ -22,6 +22,7 @@ import java.security.MessageDigest;
 import java.util.function.Consumer;
 
 import com.google.common.base.Predicate;
+import com.sun.org.apache.bcel.internal.generic.ReturnInstruction;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -481,6 +482,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
         private Clustering clustering;
         private int rowsToMerge;
         private int lastRowSet = -1;
+        private final int nowInSec;
 
         private final List<ColumnData> dataBuffer = new ArrayList<>();
         private final ColumnDataReducer columnDataReducer;
@@ -490,6 +492,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             this.rows = new Row[size];
             this.columnDataIterators = new ArrayList<>(size);
             this.columnDataReducer = new ColumnDataReducer(size, nowInSec, hasComplex);
+            this.nowInSec = nowInSec;
         }
 
         public void clear()
@@ -519,7 +522,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                 assert row != null;
                 return row;
             }
-
+            VirtualCells virtualCells = VirtualCells.EMPTY;
             LivenessInfo rowInfo = LivenessInfo.EMPTY;
             DeletionTime rowDeletion = DeletionTime.LIVE;
             for (Row row : rows)
@@ -531,6 +534,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                     rowInfo = row.primaryKeyLivenessInfo();
                 if (row.deletion().supersedes(rowDeletion))
                     rowDeletion = row.deletion();
+                virtualCells = virtualCells.merge(row.virtualCells());
             }
 
             // if (rowDeletion.isShadowedBy(rowInfo))
@@ -555,11 +559,24 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                 if (data != null)
                     dataBuffer.add(data);
             }
-
+            if (virtualCells.shouldWipeRow(nowInSec))
+            {
+                // wipe entire row(cells, livenessInfo), keep deletion
+                rowInfo = LivenessInfo.EMPTY;
+                return BTreeRow.create(clustering,
+                                       rowInfo,
+                                       rowDeletion,
+                                       virtualCells,
+                                       BTree.empty());
+            }
             // Because some data might have been shadowed by the 'activeDeletion', we could have an empty row
-            return rowInfo.isEmpty() && rowDeletion.isLive() && dataBuffer.isEmpty()
+            return rowInfo.isEmpty() && rowDeletion.isLive() && dataBuffer.isEmpty() && virtualCells.isEmpty()
                  ? null
-                 : BTreeRow.create(clustering, rowInfo, rowDeletion, BTree.build(dataBuffer, UpdateFunction.<ColumnData>noOp()));
+                    : BTreeRow.create(clustering,
+                                      rowInfo,
+                                      rowDeletion,
+                                      virtualCells,
+                                      BTree.build(dataBuffer, UpdateFunction.<ColumnData> noOp()));
         }
 
         public Clustering mergedClustering()

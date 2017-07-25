@@ -259,7 +259,6 @@ public class UnfilteredSerializer
     }
 
     // TODO refactor into ColumnInfo.serializer
-
     private long serializeRowVirtualCellsSize(VirtualCells virtualCells, SerializationHeader header)
     {
         long size = 0;
@@ -321,15 +320,15 @@ public class UnfilteredSerializer
     {
         if ((extendedFlags & HAS_ROW_VIRTUAL_CELLS) != 0)
         {
-            Map<String, ColumnInfo> keyOrConditions = deserializeViewPayload(header, in);
-            Map<String, ColumnInfo> unselected = deserializeViewPayload(header, in);
+            Map<String, ColumnInfo> keyOrConditions = deserializeRowVirtualCellsPayload(header, in);
+            Map<String, ColumnInfo> unselected = deserializeRowVirtualCellsPayload(header, in);
 
             return VirtualCells.create(keyOrConditions, unselected);
         }
         return VirtualCells.EMPTY;
     }
 
-    private Map<String, ColumnInfo> deserializeViewPayload(SerializationHeader header,
+    private Map<String, ColumnInfo> deserializeRowVirtualCellsPayload(SerializationHeader header,
                                                                  DataInputPlus in) throws IOException
     {
         Map<String, ColumnInfo> payload = new HashMap<>();

@@ -292,7 +292,6 @@ public final class JsonTransformer
 
     private void serializeVirtualCells(VirtualCells virtualCells) throws JsonGenerationException, IOException
     {
-
         if (!virtualCells.isEmpty())
         {
             objectIndenter.setCompact(false);

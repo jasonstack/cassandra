@@ -26,6 +26,7 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 import org.apache.cassandra.utils.MergeIterator;
 import org.apache.cassandra.utils.WrappedInt;
 
@@ -43,6 +44,7 @@ public abstract class Rows
         builder.newRow(row.clustering());
         builder.addPrimaryKeyLivenessInfo(row.primaryKeyLivenessInfo());
         builder.addRowDeletion(row.deletion());
+        builder.addVirtualCells(row.virtualCells());
         for (ColumnData cd : row)
         {
             if (cd.column().isSimple())
@@ -84,10 +86,14 @@ public abstract class Rows
      */
     public static int collectStats(Row row, PartitionStatisticsCollector collector)
     {
+        // FIXME temp solution
+        if (row.isEmpty())
+            return 0;
         assert !row.isEmpty();
 
         collector.update(row.primaryKeyLivenessInfo());
         collector.update(row.deletion());
+        collector.update(row.virtualCells());
 
         //we have to wrap these for the lambda
         final WrappedInt columnCount = new WrappedInt(0);
@@ -274,6 +280,7 @@ public abstract class Rows
         LivenessInfo existingInfo = existing.primaryKeyLivenessInfo();
         LivenessInfo updateInfo = update.primaryKeyLivenessInfo();
         LivenessInfo mergedInfo = existingInfo.supersedes(updateInfo) ? existingInfo : updateInfo;
+        VirtualCells mergedVirtualCells = existing.virtualCells().merge(update.virtualCells());
 
         long timeDelta = Math.abs(existingInfo.timestamp() - mergedInfo.timestamp());
 
@@ -286,6 +293,7 @@ public abstract class Rows
 
         builder.addPrimaryKeyLivenessInfo(mergedInfo);
         builder.addRowDeletion(rowDeletion);
+        builder.addVirtualCells(mergedVirtualCells);
 
         DeletionTime deletion = rowDeletion;
 
@@ -356,6 +364,9 @@ public abstract class Rows
         DeletionTime rowDeletion = existing.deletion();
         if (!deletion.supersedes(rowDeletion))
             builder.addRowDeletion(rowDeletion);
+
+        VirtualCells mergedVirtualCells = existing.virtualCells().merge(update.virtualCells());
+        builder.addVirtualCells(mergedVirtualCells);
 
         Iterator<ColumnData> a = existing.iterator();
         Iterator<ColumnData> b = update.iterator();

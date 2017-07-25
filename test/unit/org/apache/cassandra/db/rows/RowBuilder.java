@@ -70,10 +70,10 @@ public class RowBuilder implements Row.Builder
     }
 
     @Override
-    public void addVirtualCells(VirtualCells virtualCells)
+    public void addVirtualCells(VirtualCells virCells)
     {
         assert virtualCells == null;
-        this.virtualCells = virtualCells;
+        this.virtualCells = virCells;
     }
 
     public void addPrimaryKeyLivenessInfo(LivenessInfo info)

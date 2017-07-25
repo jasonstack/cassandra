@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.rows;
 
+import java.security.MessageDigest;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -112,6 +113,11 @@ public class ColumnInfo
 
         public VirtualCells merge(VirtualCells another)
         {
+            if (isEmpty())
+                return another;
+            if (another.isEmpty())
+                return this;
+
             assert getKeyOrConditions().size() == another.getKeyOrConditions().size();
             // TODO optimize, if empty, no need to merge
             Map<String, ColumnInfo> mergedKeyOrConditions = new HashMap<>();
@@ -138,6 +144,23 @@ public class ColumnInfo
         public boolean shouldWipeRow(int nowInSeconds)
         {
             return getKeyOrConditions().values().stream().anyMatch(c -> !c.isLive(nowInSeconds));
+        }
+
+        @Override
+        public String toString()
+        {
+            return "VirtualCells [keyOrConditions=" + keyOrConditions + ", unselected=" + unselected + "]";
+        }
+
+        public int dataSize()
+        {
+            // FIXME
+            return 0;
+        }
+
+        public void digest(MessageDigest digest)
+        {
+            // FIXME
         }
 
     }
