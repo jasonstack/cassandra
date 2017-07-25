@@ -87,7 +87,7 @@ public abstract class Rows
         assert !row.isEmpty();
 
         collector.update(row.primaryKeyLivenessInfo());
-        collector.update(row.deletion().time());
+        collector.update(row.deletion());
 
         //we have to wrap these for the lambda
         final WrappedInt columnCount = new WrappedInt(0);
@@ -135,12 +135,12 @@ public abstract class Rows
     {
         Clustering clustering = merged.clustering();
         LivenessInfo mergedInfo = merged.primaryKeyLivenessInfo().isEmpty() ? null : merged.primaryKeyLivenessInfo();
-        Row.Deletion mergedDeletion = merged.deletion().isLive() ? null : merged.deletion();
+        DeletionTime mergedDeletion = merged.deletion().isLive() ? null : merged.deletion();
         for (int i = 0; i < inputs.length; i++)
         {
             Row input = inputs[i];
             LivenessInfo inputInfo = input == null || input.primaryKeyLivenessInfo().isEmpty() ? null : input.primaryKeyLivenessInfo();
-            Row.Deletion inputDeletion = input == null || input.deletion().isLive() ? null : input.deletion();
+            DeletionTime inputDeletion = input == null || input.deletion().isLive() ? null : input.deletion();
 
             if (mergedInfo != null || inputInfo != null)
                 diffListener.onPrimaryKeyLivenessInfo(i, clustering, mergedInfo, inputInfo);
@@ -277,17 +277,17 @@ public abstract class Rows
 
         long timeDelta = Math.abs(existingInfo.timestamp() - mergedInfo.timestamp());
 
-        Row.Deletion rowDeletion = existing.deletion().supersedes(update.deletion()) ? existing.deletion() : update.deletion();
+        DeletionTime rowDeletion = existing.deletion().supersedes(update.deletion()) ? existing.deletion() : update.deletion();
 
         if (rowDeletion.deletes(mergedInfo))
             mergedInfo = LivenessInfo.EMPTY;
-        else if (rowDeletion.isShadowedBy(mergedInfo))
-            rowDeletion = Row.Deletion.LIVE;
+        // else if (rowDeletion.isShadowedBy(mergedInfo)) FIXME
+        // rowDeletion = DeletionTime.LIVE;
 
         builder.addPrimaryKeyLivenessInfo(mergedInfo);
         builder.addRowDeletion(rowDeletion);
 
-        DeletionTime deletion = rowDeletion.time();
+        DeletionTime deletion = rowDeletion;
 
         Iterator<ColumnData> a = existing.iterator();
         Iterator<ColumnData> b = update.iterator();
@@ -346,15 +346,15 @@ public abstract class Rows
         Clustering clustering = existing.clustering();
         builder.newRow(clustering);
 
-        DeletionTime deletion = update.deletion().time();
+        DeletionTime deletion = update.deletion();
         if (rangeDeletion.supersedes(deletion))
             deletion = rangeDeletion;
 
         LivenessInfo existingInfo = existing.primaryKeyLivenessInfo();
         if (!deletion.deletes(existingInfo))
             builder.addPrimaryKeyLivenessInfo(existingInfo);
-        Row.Deletion rowDeletion = existing.deletion();
-        if (!deletion.supersedes(rowDeletion.time()))
+        DeletionTime rowDeletion = existing.deletion();
+        if (!deletion.supersedes(rowDeletion))
             builder.addRowDeletion(rowDeletion);
 
         Iterator<ColumnData> a = existing.iterator();

@@ -358,7 +358,7 @@ public class UnfilteredRowIteratorsMergeTest
         {
             Row row = (Row) list.get(index);
             if (row.deletion().supersedes(def))
-                def = row.deletion().time();
+                def = row.deletion();
         }
 
         if (index >= list.size())

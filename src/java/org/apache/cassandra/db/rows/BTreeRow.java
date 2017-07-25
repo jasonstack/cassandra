@@ -48,7 +48,7 @@ public class BTreeRow extends AbstractRow
 
     private final Clustering clustering;
     private final LivenessInfo primaryKeyLivenessInfo;
-    private final Deletion deletion;
+    private final DeletionTime deletion;
 
     // The data for each columns present in this row in column sorted order.
     private final Object[] btree;
@@ -64,11 +64,10 @@ public class BTreeRow extends AbstractRow
 
     private BTreeRow(Clustering clustering,
                      LivenessInfo primaryKeyLivenessInfo,
-                     Deletion deletion,
+                     DeletionTime deletion,
                      Object[] btree,
                      int minLocalDeletionTime)
     {
-        assert !deletion.isShadowedBy(primaryKeyLivenessInfo);
         this.clustering = clustering;
         this.primaryKeyLivenessInfo = primaryKeyLivenessInfo;
         this.deletion = deletion;
@@ -78,16 +77,16 @@ public class BTreeRow extends AbstractRow
 
     private BTreeRow(Clustering clustering, Object[] btree, int minLocalDeletionTime)
     {
-        this(clustering, LivenessInfo.EMPTY, Deletion.LIVE, btree, minLocalDeletionTime);
+        this(clustering, LivenessInfo.EMPTY, DeletionTime.LIVE, btree, minLocalDeletionTime);
     }
 
     // Note that it's often easier/safer to use the sortedBuilder/unsortedBuilder or one of the static creation method below. Only directly useful in a small amount of cases.
     public static BTreeRow create(Clustering clustering,
                                   LivenessInfo primaryKeyLivenessInfo,
-                                  Deletion deletion,
+                                  DeletionTime deletion,
                                   Object[] btree)
     {
-        int minDeletionTime = Math.min(minDeletionTime(primaryKeyLivenessInfo), minDeletionTime(deletion.time()));
+        int minDeletionTime = Math.min(minDeletionTime(primaryKeyLivenessInfo), minDeletionTime(deletion));
         if (minDeletionTime != Integer.MIN_VALUE)
         {
             for (ColumnData cd : BTree.<ColumnData>iterable(btree))
@@ -99,7 +98,7 @@ public class BTreeRow extends AbstractRow
 
     public static BTreeRow create(Clustering clustering,
                                   LivenessInfo primaryKeyLivenessInfo,
-                                  Deletion deletion,
+                                  DeletionTime deletion,
                                   Object[] btree,
                                   int minDeletionTime)
     {
@@ -120,7 +119,7 @@ public class BTreeRow extends AbstractRow
         return new BTreeRow(clustering, BTree.singleton(complexData), minDeletionTime(cell));
     }
 
-    public static BTreeRow emptyDeletedRow(Clustering clustering, Deletion deletion)
+    public static BTreeRow emptyDeletedRow(Clustering clustering, DeletionTime deletion)
     {
         assert !deletion.isLive();
         return new BTreeRow(clustering, LivenessInfo.EMPTY, deletion, BTree.empty(), Integer.MIN_VALUE);
@@ -131,7 +130,7 @@ public class BTreeRow extends AbstractRow
         assert !primaryKeyLivenessInfo.isEmpty();
         return new BTreeRow(clustering,
                             primaryKeyLivenessInfo,
-                            Deletion.LIVE,
+                            DeletionTime.LIVE,
                             BTree.empty(),
                             minDeletionTime(primaryKeyLivenessInfo));
     }
@@ -209,7 +208,7 @@ public class BTreeRow extends AbstractRow
                && BTree.isEmpty(btree);
     }
 
-    public Deletion deletion()
+    public DeletionTime deletion()
     {
         return deletion;
     }
@@ -265,21 +264,21 @@ public class BTreeRow extends AbstractRow
         Map<ByteBuffer, DroppedColumn> droppedColumns = metadata.droppedColumns;
 
         boolean mayFilterColumns = !filter.fetchesAllColumns(isStatic());
-        boolean mayHaveShadowed = activeDeletion.supersedes(deletion.time());
+        boolean mayHaveShadowed = activeDeletion.supersedes(deletion);
 
         if (!mayFilterColumns && !mayHaveShadowed && droppedColumns.isEmpty())
             return this;
 
 
         LivenessInfo newInfo = primaryKeyLivenessInfo;
-        Deletion newDeletion = deletion;
+        DeletionTime newDeletion = deletion;
         if (mayHaveShadowed)
         {
             if (activeDeletion.deletes(newInfo.timestamp()))
                 newInfo = LivenessInfo.EMPTY;
             // note that mayHaveShadowed means the activeDeletion shadows the row deletion. So if don't have setActiveDeletionToRow,
             // the row deletion is shadowed and we shouldn't return it.
-            newDeletion = setActiveDeletionToRow ? Deletion.regular(activeDeletion) : Deletion.LIVE;
+            newDeletion = setActiveDeletionToRow ? activeDeletion : DeletionTime.LIVE;
         }
 
         Columns columns = filter.fetchedColumns().columns(isStatic());
@@ -375,10 +374,10 @@ public class BTreeRow extends AbstractRow
     {
         LivenessInfo newInfo = primaryKeyLivenessInfo.isEmpty() ? primaryKeyLivenessInfo : primaryKeyLivenessInfo.withUpdatedTimestamp(newTimestamp);
         // If the deletion is shadowable and the row has a timestamp, we'll forced the deletion timestamp to be less than the row one, so we
-        // should get rid of said deletion.
-        Deletion newDeletion = deletion.isLive() || (deletion.isShadowable() && !primaryKeyLivenessInfo.isEmpty())
-                             ? Deletion.LIVE
-                             : new Deletion(new DeletionTime(newTimestamp - 1, deletion.time().localDeletionTime()), deletion.isShadowable());
+        // should get rid of said deletion. FIXME
+        DeletionTime newDeletion = deletion.isLive()
+                ? DeletionTime.LIVE
+                : new DeletionTime(newTimestamp - 1, deletion.localDeletionTime());
 
         return transformAndFilter(newInfo, newDeletion, (cd) -> cd.updateAllTimestamp(newTimestamp));
     }
@@ -392,7 +391,11 @@ public class BTreeRow extends AbstractRow
         //  - we set the minLocalDeletionTime to MIN_VALUE because we know the deletion is live
         return newDeletion.isLive() || !deletion.isLive()
              ? this
-             : new BTreeRow(clustering, primaryKeyLivenessInfo, Deletion.regular(newDeletion), btree, Integer.MIN_VALUE);
+                : new BTreeRow(clustering,
+                               primaryKeyLivenessInfo,
+                               newDeletion,
+                               btree,
+                               Integer.MIN_VALUE);
     }
 
     public Row purge(DeletionPurger purger, int nowInSec)
@@ -401,12 +404,12 @@ public class BTreeRow extends AbstractRow
             return this;
 
         LivenessInfo newInfo = purger.shouldPurge(primaryKeyLivenessInfo, nowInSec) ? LivenessInfo.EMPTY : primaryKeyLivenessInfo;
-        Deletion newDeletion = purger.shouldPurge(deletion.time()) ? Deletion.LIVE : deletion;
+        DeletionTime newDeletion = purger.shouldPurge(deletion) ? DeletionTime.LIVE : deletion;
 
         return transformAndFilter(newInfo, newDeletion, (cd) -> cd.purge(purger, nowInSec));
     }
 
-    private Row transformAndFilter(LivenessInfo info, Deletion deletion, Function<ColumnData, ColumnData> function)
+    private Row transformAndFilter(LivenessInfo info, DeletionTime deletion, Function<ColumnData, ColumnData> function)
     {
         Object[] transformed = BTree.transformAndFilter(btree, function);
 
@@ -416,7 +419,7 @@ public class BTreeRow extends AbstractRow
         if (info.isEmpty() && deletion.isLive() && BTree.isEmpty(transformed))
             return null;
 
-        int minDeletionTime = minDeletionTime(transformed, info, deletion.time());
+        int minDeletionTime = minDeletionTime(transformed, info, deletion);
         return BTreeRow.create(clustering, info, deletion, transformed, minDeletionTime);
     }
 
@@ -666,7 +669,7 @@ public class BTreeRow extends AbstractRow
         }
         protected Clustering clustering;
         protected LivenessInfo primaryKeyLivenessInfo = LivenessInfo.EMPTY;
-        protected Deletion deletion = Deletion.LIVE;
+        protected DeletionTime deletion = DeletionTime.LIVE;
 
         private final boolean isSorted;
         private BTree.Builder<Cell> cells_;
@@ -734,7 +737,7 @@ public class BTreeRow extends AbstractRow
         {
             this.clustering = null;
             this.primaryKeyLivenessInfo = LivenessInfo.EMPTY;
-            this.deletion = Deletion.LIVE;
+            this.deletion = DeletionTime.LIVE;
             this.cells_ = null;
             this.hasComplex = false;
         }
@@ -746,7 +749,7 @@ public class BTreeRow extends AbstractRow
                 this.primaryKeyLivenessInfo = info;
         }
 
-        public void addRowDeletion(Deletion deletion)
+        public void addRowDeletion(DeletionTime deletion)
         {
             this.deletion = deletion;
             // The check is only required for unsorted builders, but it's worth the extra safety to have it unconditional
@@ -782,10 +785,11 @@ public class BTreeRow extends AbstractRow
                 getCells().resolve(resolver);
             Object[] btree = getCells().build();
 
-            if (deletion.isShadowedBy(primaryKeyLivenessInfo))
-                deletion = Deletion.LIVE;
+            // FIXME handle per row checks
+            // if (deletion.isShadowedBy(primaryKeyLivenessInfo))
+            // deletion = DeletionTime.LIVE;
 
-            int minDeletionTime = minDeletionTime(btree, primaryKeyLivenessInfo, deletion.time());
+            int minDeletionTime = minDeletionTime(btree, primaryKeyLivenessInfo, deletion);
             Row row = BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, btree, minDeletionTime);
             reset();
             return row;

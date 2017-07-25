@@ -37,7 +37,7 @@ public class RowBuilder implements Row.Builder
     public List<Cell> cells = new LinkedList<>();
     public Clustering clustering = null;
     public LivenessInfo livenessInfo = null;
-    public Row.Deletion deletionTime = null;
+    public DeletionTime deletionTime = null;
     public List<Pair<ColumnMetadata, DeletionTime>> complexDeletions = new LinkedList<>();
 
     @Override
@@ -73,7 +73,7 @@ public class RowBuilder implements Row.Builder
         livenessInfo = info;
     }
 
-    public void addRowDeletion(Row.Deletion deletion)
+    public void addRowDeletion(DeletionTime deletion)
     {
         assert deletionTime == null;
         deletionTime = deletion;

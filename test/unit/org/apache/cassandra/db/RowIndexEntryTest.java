@@ -140,7 +140,7 @@ public class RowIndexEntryTest extends CQLTester
 
         DeletionTime deletionInfo = new DeletionTime(FBUtilities.timestampMicros(), FBUtilities.nowInSeconds());
         LivenessInfo primaryKeyLivenessInfo = LivenessInfo.EMPTY;
-        Row.Deletion deletion = Row.Deletion.LIVE;
+        DeletionTime deletion = DeletionTime.LIVE;
 
         SerializationHeader header = new SerializationHeader(true, metadata, metadata.regularAndStaticColumns(), EncodingStats.NO_STATS);
 

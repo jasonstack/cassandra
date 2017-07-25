@@ -454,7 +454,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
             }
             else
             {
-                DeletionTime deletion = Ordering.natural().max(tombRow.deletion().time(),
+                DeletionTime deletion = Ordering.natural().max(tombRow.deletion(),
                                                                activeDeletionTime);
                 return dataRow.filter(cf, deletion, false, metadata);
             }

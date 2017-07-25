@@ -268,7 +268,7 @@ public final class JsonTransformer
             // If this is a deletion, indicate that, otherwise write cells.
             if (!row.deletion().isLive())
             {
-                serializeDeletion(row.deletion().time());
+                serializeDeletion(row.deletion());
             }
             json.writeFieldName("cells");
             json.writeStartArray();

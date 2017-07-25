@@ -1199,7 +1199,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                 {
                 }
 
-                public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)
+                public void onDeletion(int i, Clustering clustering, DeletionTime merged, DeletionTime original)
                 {
                 }
 
@@ -1292,7 +1292,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                         getBuilder(i, clustering).addPrimaryKeyLivenessInfo(original);
                 }
 
-                public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)
+                public void onDeletion(int i, Clustering clustering, DeletionTime merged, DeletionTime original)
                 {
                 }
 

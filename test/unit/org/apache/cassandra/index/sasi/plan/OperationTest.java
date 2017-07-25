@@ -403,8 +403,7 @@ public class OperationTest extends SchemaLoader
 
         long now = System.currentTimeMillis();
 
-        row = OperationTest.buildRow(
-                Row.Deletion.regular(new DeletionTime(now - 10, (int) (now / 1000))),
+        row = OperationTest.buildRow(new DeletionTime(now - 10, (int) (now / 1000)),
                           buildCell(age, Int32Type.instance.decompose(6), System.currentTimeMillis()));
 
         Assert.assertFalse(op.satisfiedBy(row, staticRow, false));
@@ -658,7 +657,7 @@ public class OperationTest extends SchemaLoader
         return buildRow(Clustering.EMPTY, null, cells);
     }
 
-    private static Row buildRow(Row.Deletion deletion, Cell... cells)
+    private static Row buildRow(DeletionTime deletion, Cell... cells)
     {
         return buildRow(Clustering.EMPTY, deletion, cells);
     }
@@ -668,7 +667,7 @@ public class OperationTest extends SchemaLoader
         return buildRow(clustering, null, cells);
     }
 
-    private static Row buildRow(Clustering clustering, Row.Deletion deletion, Cell... cells)
+    private static Row buildRow(Clustering clustering, DeletionTime deletion, Cell... cells)
     {
         Row.Builder rowBuilder = BTreeRow.sortedBuilder();
         rowBuilder.newRow(clustering);

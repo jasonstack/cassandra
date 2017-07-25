@@ -24,7 +24,6 @@ import com.google.common.collect.Collections2;
 import net.nicoulaj.compilecommand.annotations.Inline;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.rows.Row.Deletion;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -111,7 +110,8 @@ public class UnfilteredSerializer
      * Extended flags
      */
     private final static int IS_STATIC               = 0x01; // Whether the encoded row is a static. If there is no extended flag, the row is assumed not static.
-    private final static int HAS_SHADOWABLE_DELETION = 0x02; // Whether the row deletion is shadowable. If there is no extended flag (or no row deletion), the deletion is assumed not shadowable.
+    // private final static int HAS_SHADOWABLE_DELETION = 0x02; // Whether the row deletion is shadowable. If there is
+    // no extended flag (or no row deletion), the deletion is assumed not shadowable.
 
     public void serialize(Unfiltered unfiltered, SerializationHeader header, DataOutputPlus out, int version)
     throws IOException
@@ -149,7 +149,7 @@ public class UnfilteredSerializer
         boolean isStatic = row.isStatic();
         Columns headerColumns = header.columns(isStatic);
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
-        Row.Deletion deletion = row.deletion();
+        DeletionTime deletion = row.deletion();
         boolean hasComplexDeletion = row.hasComplexDeletion();
         boolean hasAllColumns = (row.size() == headerColumns.size());
         boolean hasExtendedFlags = hasExtendedFlags(row);
@@ -164,8 +164,6 @@ public class UnfilteredSerializer
         if (!deletion.isLive())
         {
             flags |= HAS_DELETION;
-            if (deletion.isShadowable())
-                extendedFlags |= HAS_SHADOWABLE_DELETION;
         }
         if (hasComplexDeletion)
             flags |= HAS_COMPLEX_DELETION;
@@ -209,7 +207,7 @@ public class UnfilteredSerializer
 
         Columns headerColumns = header.columns(isStatic);
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
-        Row.Deletion deletion = row.deletion();
+        DeletionTime deletion = row.deletion();
 
         if ((flags & HAS_TIMESTAMP) != 0)
             header.writeTimestamp(pkLiveness.timestamp(), out);
@@ -219,7 +217,7 @@ public class UnfilteredSerializer
             header.writeLocalDeletionTime(pkLiveness.localExpirationTime(), out);
         }
         if ((flags & HAS_DELETION) != 0)
-            header.writeDeletionTime(deletion.time(), out);
+            header.writeDeletionTime(deletion, out);
 
         if ((flags & HAS_ALL_COLUMNS) == 0)
             Columns.serializer.serializeSubset(Collections2.transform(row, ColumnData::column), headerColumns, out);
@@ -330,7 +328,7 @@ public class UnfilteredSerializer
         boolean isStatic = row.isStatic();
         Columns headerColumns = header.columns(isStatic);
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
-        Row.Deletion deletion = row.deletion();
+        DeletionTime deletion = row.deletion();
         boolean hasComplexDeletion = row.hasComplexDeletion();
         boolean hasAllColumns = (row.size() == headerColumns.size());
 
@@ -342,7 +340,7 @@ public class UnfilteredSerializer
             size += header.localDeletionTimeSerializedSize(pkLiveness.localExpirationTime());
         }
         if (!deletion.isLive())
-            size += header.deletionTimeSerializedSize(deletion.time());
+            size += header.deletionTimeSerializedSize(deletion);
 
         if (!hasAllColumns)
             size += Columns.serializer.serializedSubsetSize(Collections2.transform(row, ColumnData::column), header.columns(isStatic));
@@ -500,7 +498,7 @@ public class UnfilteredSerializer
                     assert header.isForSSTable();
                     boolean hasTimestamp = (flags & HAS_TIMESTAMP) != 0;
                     boolean hasTTL = (flags & HAS_TTL) != 0;
-                    boolean deletionIsShadowable = (extendedFlags & HAS_SHADOWABLE_DELETION) != 0;
+                    // boolean deletionIsShadowable = (extendedFlags & HAS_SHADOWABLE_DELETION) != 0; FIXME
                     Clustering clustering = Clustering.serializer.deserialize(in, helper.version, header.clusteringTypes());
                     long nextPosition = in.readUnsignedVInt() + in.getFilePointer();
                     in.readUnsignedVInt(); // skip previous unfiltered size
@@ -514,7 +512,7 @@ public class UnfilteredSerializer
                         }
                     }
 
-                    Deletion deletion = new Row.Deletion(header.readDeletionTime(in), deletionIsShadowable);
+                    DeletionTime deletion = header.readDeletionTime(in);
                     in.seek(nextPosition);
                     return BTreeRow.emptyDeletedRow(clustering, deletion);
                 }
@@ -568,7 +566,7 @@ public class UnfilteredSerializer
             boolean hasTimestamp = (flags & HAS_TIMESTAMP) != 0;
             boolean hasTTL = (flags & HAS_TTL) != 0;
             boolean hasDeletion = (flags & HAS_DELETION) != 0;
-            boolean deletionIsShadowable = (extendedFlags & HAS_SHADOWABLE_DELETION) != 0;
+            // boolean deletionIsShadowable = (extendedFlags & HAS_SHADOWABLE_DELETION) != 0; FIXME
             boolean hasComplexDeletion = (flags & HAS_COMPLEX_DELETION) != 0;
             boolean hasAllColumns = (flags & HAS_ALL_COLUMNS) != 0;
             Columns headerColumns = header.columns(isStatic);
@@ -589,7 +587,7 @@ public class UnfilteredSerializer
             }
 
             builder.addPrimaryKeyLivenessInfo(rowLiveness);
-            builder.addRowDeletion(hasDeletion ? new Row.Deletion(header.readDeletionTime(in), deletionIsShadowable) : Row.Deletion.LIVE);
+            builder.addRowDeletion(hasDeletion ? header.readDeletionTime(in) : DeletionTime.LIVE);
 
             Columns columns = hasAllColumns ? headerColumns : Columns.serializer.deserializeSubset(headerColumns, in);
 
@@ -734,6 +732,6 @@ public class UnfilteredSerializer
 
     public static boolean hasExtendedFlags(Row row)
     {
-        return row.isStatic() || row.deletion().isShadowable();
+        return row.isStatic();
     }
 }

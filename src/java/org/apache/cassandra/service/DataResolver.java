@@ -205,7 +205,7 @@ public class DataResolver extends ResponseResolver
                             currentRow(i, clustering).addPrimaryKeyLivenessInfo(merged);
                     }
 
-                    public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)
+                    public void onDeletion(int i, Clustering clustering, DeletionTime merged, DeletionTime original)
                     {
                         if (merged != null && !merged.equals(original))
                             currentRow(i, clustering).addRowDeletion(merged);

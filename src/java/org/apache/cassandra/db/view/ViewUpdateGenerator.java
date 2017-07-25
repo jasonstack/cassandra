@@ -384,7 +384,7 @@ public class ViewUpdateGenerator
     {
         startNewUpdate(existingBaseRow);
         DeletionTime dt = new DeletionTime(computeTimestampForEntryDeletion(existingBaseRow), nowInSec);
-        currentViewEntryBuilder.addRowDeletion(Row.Deletion.shadowable(dt));
+        currentViewEntryBuilder.addRowDeletion(dt);
         submitUpdate();
     }
 
