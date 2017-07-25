@@ -33,6 +33,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 import org.apache.cassandra.schema.DroppedColumn;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.btree.BTree;
@@ -49,6 +50,7 @@ public class BTreeRow extends AbstractRow
     private final Clustering clustering;
     private final LivenessInfo primaryKeyLivenessInfo;
     private final DeletionTime deletion;
+    private final VirtualCells virtualCells;
 
     // The data for each columns present in this row in column sorted order.
     private final Object[] btree;
@@ -73,7 +75,24 @@ public class BTreeRow extends AbstractRow
         this.deletion = deletion;
         this.btree = btree;
         this.minLocalDeletionTime = minLocalDeletionTime;
+        this.virtualCells = VirtualCells.EMPTY; 
     }
+
+    private BTreeRow(Clustering clustering,
+                     LivenessInfo primaryKeyLivenessInfo,
+                     DeletionTime deletion,
+                     VirtualCells virtualCells,
+                     Object[] btree,
+                     int minLocalDeletionTime)
+    {
+        this.clustering = clustering;
+        this.primaryKeyLivenessInfo = primaryKeyLivenessInfo;
+        this.deletion = deletion;
+        this.btree = btree;
+        this.minLocalDeletionTime = minLocalDeletionTime;
+        this.virtualCells = virtualCells;
+    }
+
 
     private BTreeRow(Clustering clustering, Object[] btree, int minLocalDeletionTime)
     {
@@ -123,6 +142,12 @@ public class BTreeRow extends AbstractRow
     {
         assert !deletion.isLive();
         return new BTreeRow(clustering, LivenessInfo.EMPTY, deletion, BTree.empty(), Integer.MIN_VALUE);
+    }
+
+    public static BTreeRow emptyDeletedRow(Clustering clustering, DeletionTime deletion, VirtualCells virtualCells)
+    {
+        assert !deletion.isLive();
+        return new BTreeRow(clustering, LivenessInfo.EMPTY, deletion, virtualCells, BTree.empty(), Integer.MIN_VALUE);
     }
 
     public static BTreeRow noCellLiveRow(Clustering clustering, LivenessInfo primaryKeyLivenessInfo)
@@ -200,11 +225,18 @@ public class BTreeRow extends AbstractRow
     {
         return primaryKeyLivenessInfo;
     }
+ 
+    @Override
+    public VirtualCells virtualCells()
+    {
+        return virtualCells;
+    }
 
     public boolean isEmpty()
     {
         return primaryKeyLivenessInfo().isEmpty()
                && deletion().isLive()
+               && virtualCells().isEmpty() 
                && BTree.isEmpty(btree);
     }
 
@@ -668,9 +700,9 @@ public class BTreeRow extends AbstractRow
 
         }
         protected Clustering clustering;
+        protected VirtualCells virtualCells = VirtualCells.EMPTY;
         protected LivenessInfo primaryKeyLivenessInfo = LivenessInfo.EMPTY;
         protected DeletionTime deletion = DeletionTime.LIVE;
-
         private final boolean isSorted;
         private BTree.Builder<Cell> cells_;
         private final CellResolver resolver;
@@ -740,6 +772,12 @@ public class BTreeRow extends AbstractRow
             this.deletion = DeletionTime.LIVE;
             this.cells_ = null;
             this.hasComplex = false;
+        }
+
+        @Override
+        public void addVirtualCells(VirtualCells virtualCells)
+        {
+            virtualCells = virtualCells.merge(virtualCells);
         }
 
         public void addPrimaryKeyLivenessInfo(LivenessInfo info)

@@ -413,6 +413,44 @@ public class ViewTest extends CQLTester
         assertRows(execute("SELECT k,a,b from %s"), row(1, 1, 2));
     }
 
+    /**
+     * only pkOrConditions
+     * 
+     * @throws Throwable
+     */
+    @Test
+    public void test11500() throws Throwable
+    {
+        boolean flush = true;
+        createTable("CREATE TABLE %s (k int PRIMARY KEY, a int, b int);");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE k IS NOT NULL AND a IS NOT NULL PRIMARY KEY (k, a);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        // sstable-1, Set initial values TS=1
+        executeNet(protocolVersion, "INSERT INTO %s(k, a, b) VALUES (1, 1, 1) USING TIMESTAMP 0;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 10 SET b = 2 WHERE k = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 2 SET a = 2 WHERE k = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 3 SET a = 1 WHERE k = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        // correct result should be (1,1,2)
+        assertRows(execute("SELECT k,a,b from mv"), row(1, 1, 2));
+        assertRows(execute("SELECT k,a,b from %s"), row(1, 1, 2));
+    }
+
     private void complexTimestampWithbaseNonPKColumnsInViewPKRegularAndShadowableDeletionTest(boolean flush)
             throws Throwable
     {

@@ -25,6 +25,7 @@ import com.google.common.base.Predicate;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.paxos.Commit;
@@ -88,6 +89,8 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      * wasn't pre-existing (which users are encouraged not to do, but we can't validate).
      */
     public LivenessInfo primaryKeyLivenessInfo();
+
+    public VirtualCells virtualCells();
 
     /**
      * Whether the row correspond to a static row or not.
@@ -319,14 +322,23 @@ public interface Row extends Unfiltered, Collection<ColumnData>
         public Clustering clustering();
 
         /**
-         * Adds the liveness information for the partition key columns of this row.
+         * Adds the liveness information for the primary key columns of this row.
          *
-         * This call is optional (skipping it is equivalent to calling {@code addPartitionKeyLivenessInfo(LivenessInfo.NONE)}).
+         * This call is optional (skipping it is equivalent to calling {@code addPartitionKeyLivenessInfo(LivenessInfo.EMPTY)}).
          *
-         * @param info the liveness information for the partition key columns of the built row.
+         * @param info the liveness information for the primary key columns of the built row.
          */
         public void addPrimaryKeyLivenessInfo(LivenessInfo info);
 
+        /**
+         * Adds the virtual cells information for the primary key columns of this row.
+         *
+         * This call is optional (skipping it is equivalent to calling {@code addVirtualCells(VirtualCells.EMPTY)}).
+         *
+         * @param virtualCells the information for addition cells info for the built *VIEW* row.
+         */
+        public void addVirtualCells(VirtualCells virtualCells);
+        
         /**
          * Adds the deletion information for this row.
          *
@@ -356,7 +368,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
          *
          * @return the last row built by this builder.
          */
-        public Row build();
+        public Row build(); 
     }
 
     /**

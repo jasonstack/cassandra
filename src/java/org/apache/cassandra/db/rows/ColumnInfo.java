@@ -17,21 +17,130 @@
  */
 package org.apache.cassandra.db.rows;
 
-import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.cassandra.db.LivenessInfo;
-import org.apache.cassandra.db.marshal.ByteType;
-import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.ObjectSizes;
 
 /**
  * TODO could extend from {@code AbstractCell}
  */
 public class ColumnInfo
 {
+
+    /**
+     * Wrapper for ColumnInfos
+     */
+    public static class VirtualCells
+    {
+        public static final VirtualCells EMPTY = new VirtualCells();
+
+        private final Map<String, ColumnInfo> keyOrConditions;
+        private final Map<String, ColumnInfo> unselected;
+
+        private VirtualCells()
+        {
+            keyOrConditions = Collections.EMPTY_MAP;
+            unselected = Collections.EMPTY_MAP;
+        }
+
+        public VirtualCells(Map<String, ColumnInfo> keyOrConditions, Map<String, ColumnInfo> unselected)
+        {
+            this.keyOrConditions = keyOrConditions;
+            this.unselected = unselected;
+        }
+
+        public static VirtualCells create(Map<String, ColumnInfo> keyOrConditions, Map<String, ColumnInfo> unselected)
+        {
+            if (keyOrConditions.isEmpty() && unselected.isEmpty())
+                return EMPTY;
+            return new VirtualCells(keyOrConditions, unselected);
+        }
+
+        public boolean isEmpty()
+        {
+            return keyOrConditions.isEmpty() && unselected.isEmpty();
+        }
+
+        public Map<String, ColumnInfo> getKeyOrConditions()
+        {
+            return keyOrConditions;
+        }
+
+        public Map<String, ColumnInfo> getUnselected()
+        {
+            return unselected;
+        }
+
+        @Override
+        public int hashCode()
+        {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + ((keyOrConditions == null) ? 0 : keyOrConditions.hashCode());
+            result = prime * result + ((unselected == null) ? 0 : unselected.hashCode());
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj)
+        {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (getClass() != obj.getClass())
+                return false;
+            VirtualCells other = (VirtualCells) obj;
+            if (keyOrConditions == null)
+            {
+                if (other.keyOrConditions != null)
+                    return false;
+            }
+            else if (!keyOrConditions.equals(other.keyOrConditions))
+                return false;
+            if (unselected == null)
+            {
+                if (other.unselected != null)
+                    return false;
+            }
+            else if (!unselected.equals(other.unselected))
+                return false;
+            return true;
+        }
+
+        public VirtualCells merge(VirtualCells another)
+        {
+            assert getKeyOrConditions().size() == another.getKeyOrConditions().size();
+            // TODO optimize, if empty, no need to merge
+            Map<String, ColumnInfo> mergedKeyOrConditions = new HashMap<>();
+            for (Map.Entry<String, ColumnInfo> entry : getKeyOrConditions().entrySet())
+            {
+                String column = entry.getKey();
+                ColumnInfo left = entry.getValue();
+                ColumnInfo right = another.getKeyOrConditions().get(column);
+                assert right != null; // both map should contains same key
+                ColumnInfo mergedColumnInfo = left.merge(right);
+                mergedKeyOrConditions.put(column, mergedColumnInfo);
+            }
+
+            Map<String, ColumnInfo> mergedUnselected = new HashMap<>();
+            getUnselected().entrySet()
+                           .forEach(e -> mergedUnselected.merge(e.getKey(), e.getValue(), (c1, c2) -> c1.merge(c2)));
+            another.getUnselected()
+                   .entrySet()
+                   .forEach(e -> mergedUnselected.merge(e.getKey(), e.getValue(), (c1, c2) -> c1.merge(c2)));
+
+            return VirtualCells.create(mergedKeyOrConditions, mergedUnselected);
+        }
+
+        public boolean shouldWipeRow(int nowInSeconds)
+        {
+            return getKeyOrConditions().values().stream().anyMatch(c -> !c.isLive(nowInSeconds));
+        }
+
+    }
 
 
     private final long timestamp;
@@ -58,17 +167,6 @@ public class ColumnInfo
         if (!isTombstone() && other.isTombstone())
             return other;
         return localDeletionTime() > other.localDeletionTime() ? this : other;
-    }
-
-    public static Map<String, ColumnInfo> merge(Map<String, ColumnInfo> curr, Map<String, ColumnInfo> another)
-    {
-        // TODO refactor
-        Map<String, ColumnInfo> merged = new HashMap<>();
-        for (Map.Entry<String, ColumnInfo> entry : curr.entrySet())
-            merged.merge(entry.getKey(), entry.getValue(), (c, o) -> c.merge(o));
-        for (Map.Entry<String, ColumnInfo> entry : another.entrySet())
-            merged.merge(entry.getKey(), entry.getValue(), (c, o) -> c.merge(o));
-        return merged;
     }
 
     public static boolean anyTombstone(Map<String, ColumnInfo> info)

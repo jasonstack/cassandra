@@ -33,6 +33,7 @@ import org.apache.cassandra.utils.ObjectSizes;
 /**
  * Information on deletion of a storage engine object.
  */
+// FIXME, removing Row.Deletion may cause issues on upgrade
 public class DeletionTime implements Comparable<DeletionTime>, IMeasurableMemory
 {
     private static final long EMPTY_SIZE = ObjectSizes.measure(new DeletionTime(0, 0));

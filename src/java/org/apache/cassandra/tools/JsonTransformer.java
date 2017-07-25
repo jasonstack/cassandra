@@ -27,6 +27,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -39,6 +40,7 @@ import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.ColumnData;
+import org.apache.cassandra.db.rows.ColumnInfo;
 import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.RangeTombstoneBoundMarker;
 import org.apache.cassandra.db.rows.RangeTombstoneBoundaryMarker;
@@ -46,12 +48,14 @@ import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.codehaus.jackson.JsonFactory;
+import org.codehaus.jackson.JsonGenerationException;
 import org.codehaus.jackson.JsonGenerator;
 import org.codehaus.jackson.impl.Indenter;
 import org.codehaus.jackson.util.DefaultPrettyPrinter.NopIndenter;
@@ -243,7 +247,8 @@ public final class JsonTransformer
             {
                 serializeClustering(row.clustering());
             }
-
+            VirtualCells virtualCells = row.virtualCells();
+            serializeVirtualCells(virtualCells);
             LivenessInfo liveInfo = row.primaryKeyLivenessInfo();
             if (!liveInfo.isEmpty())
             {
@@ -283,6 +288,56 @@ public final class JsonTransformer
         {
             logger.error("Fatal error parsing row.", e);
         }
+    }
+
+    private void serializeVirtualCells(VirtualCells virtualCells) throws JsonGenerationException, IOException
+    {
+
+        if (!virtualCells.isEmpty())
+        {
+            objectIndenter.setCompact(false);
+            json.writeFieldName("Virtual Cells");
+            objectIndenter.setCompact(true);
+            json.writeStartObject();
+            serializeVirtualCellsPayload("KeyOrConditions", virtualCells.getKeyOrConditions());
+            serializeVirtualCellsPayload("Unselected", virtualCells.getUnselected());
+            json.writeEndObject();
+            objectIndenter.setCompact(false);
+        }
+    }
+
+    private void serializeVirtualCellsPayload(String name,
+                                              Map<String, ColumnInfo> payload) throws JsonGenerationException, IOException
+    {
+        if (payload.isEmpty())
+            return;
+        json.writeFieldName(name);
+        json.writeStartObject();
+        for (Map.Entry<String, ColumnInfo> data : payload.entrySet())
+        {
+            json.writeFieldName(data.getKey());
+            json.writeStartObject();
+            ColumnInfo info = data.getValue();
+            if (info.timestamp() != LivenessInfo.NO_TIMESTAMP)
+            {
+                json.writeFieldName("timestamp");
+                json.writeString(dateString(TimeUnit.MICROSECONDS, info.timestamp()));
+            }
+            if (info.isExpiring())
+            {
+                json.writeFieldName("ttl");
+                json.writeNumber(info.ttl());
+                json.writeFieldName("localDeletionTime");
+                json.writeString(dateString(TimeUnit.SECONDS, info.localDeletionTime()));
+            }
+            else if (info.isTombstone())
+            {
+                json.writeFieldName("localDeletionTime");
+                json.writeString(dateString(TimeUnit.SECONDS, info.localDeletionTime()));
+            }
+            json.writeEndObject();
+        }
+        json.writeEndObject();
     }
 
     private void serializeTombstone(RangeTombstoneMarker tombstone)
