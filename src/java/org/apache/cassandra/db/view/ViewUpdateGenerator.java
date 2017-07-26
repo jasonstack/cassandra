@@ -26,7 +26,6 @@ import com.google.common.collect.PeekingIterator;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.commons.math.complex.Complex;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.restrictions.Restriction;
 import org.apache.cassandra.db.*;
@@ -212,7 +211,7 @@ public class ViewUpdateGenerator
         if (!isLive(after))
             return UpdateAction.DELETE_OLD;
 
-        return baseColumn.cellValueType().compare(before.value(), after.value()) == 0
+        return baseColumn.type.compare(before.value(), after.value()) == 0
              ? UpdateAction.UPDATE_EXISTING
              : UpdateAction.SWITCH_ENTRY;
     }
@@ -528,6 +527,7 @@ public class ViewUpdateGenerator
         return max;
     }
 
+    // wrong... need to generate a synthetic column
     private boolean isLive(ComplexColumnData complexColumn)
     {
         if (complexColumn == null)
@@ -544,8 +544,56 @@ public class ViewUpdateGenerator
                 max = element.timestamp();
             }
         }
-        return max != LivenessInfo.NO_EXPIRATION_TIME;
+        return max != LivenessInfo.NO_TIMESTAMP;
     }
+
+    // private ColumnInfo computeColumnInfoForComplexColumInsertion(ComplexColumnData complexColumn)
+    // {
+    // if (complexColumn == null)
+    // return null;
+    // DeletionTime deletionTime = complexColumn.complexDeletion();
+    // Iterator<Cell> cells = complexColumn.iterator();
+    // ColumnInfo merged = null;
+    // while (cells.hasNext())
+    // {
+    // Cell element = cells.next();
+    // if (element.isLive(nowInSec) && element.timestamp() > deletionTime.markedForDeleteAt())
+    // {
+    // ColumnInfo next = new ColumnInfo(element.timestamp(), element.ttl(), element.localDeletionTime());
+    // if (merged == null)
+    // {
+    // merged = next;
+    // }
+    // }
+    // }
+    // return merged;
+    // }
+    // private ColumnInfo computeColumnInfoForComplexColum(ComplexColumnData before,
+    // ComplexColumnData after,
+    // boolean isViewDeletion)
+    // {
+    // ColumnInfo info = null;
+    // if (isViewDeletion)
+    // {
+    // if (isLive(before) && !isLive(after))
+    // {
+    // // FIXME need to use after
+    // computeColumnInfoForComplexColumInsertion(after);
+    // info = new ColumnInfo(getComplexColumnMaxLiveTimestamp(before), 0, nowInSec);
+    // }
+    // }
+    // else
+    // {
+    // if (isLive(after))
+    // {
+    // // FIXME, don't support ttl on collection elements yet
+    // info = new ColumnInfo(getComplexColumnMaxLiveTimestamp(after),
+    // 0,
+    // DeletionTime.LIVE.localDeletionTime());
+    // }
+    // }
+    // return info;
+    // }
 
     private Map<String, ColumnInfo> extractUnselected(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)// FIXME
     {
@@ -553,35 +601,18 @@ public class ViewUpdateGenerator
         for (ColumnMetadata column : view.getDefinition().baseTableMetadata().columns())
         {
 
-            if (!view.getDefinition().includes(column.name)
-                    && !view.baseNonPKColumnsInViewPK.contains(column))
+            if (!view.getDefinition().includes(column.name) && !view.baseNonPKColumnsInViewPK.contains(column))
             {
                 if (column.isComplex())
                 {
-
-                    ComplexColumnData before = existingBaseRow == null ? null
-                            : mergedBaseRow.getComplexColumnData(column);
-                    ComplexColumnData after = mergedBaseRow == null ? null : mergedBaseRow.getComplexColumnData(column);
-                    ColumnInfo info = null;
-                    if (isViewDeletion)
-                    {
-                        if (isLive(before) && !isLive(after))
-                        {
-                            info = new ColumnInfo(getComplexColumnMaxLiveTimestamp(before), 0, nowInSec);
-                        }
-                    }
-                    else
-                    {
-                        if (isLive(after))
-                        {
-                            // FIXME, don't support ttl on collection elements yet
-                            info = new ColumnInfo(getComplexColumnMaxLiveTimestamp(before),
-                                                  0,
-                                                  DeletionTime.LIVE.localDeletionTime());
-                        }
-                    }
-                    if (info != null)
-                        map.put(column.name.toString(), info);
+                    // FIXME don't support complex column in unselected
+                    // ComplexColumnData before = existingBaseRow == null ? null
+                    // : existingBaseRow.getComplexColumnData(column);
+                    // ComplexColumnData after = mergedBaseRow == null ? null :
+                    // mergedBaseRow.getComplexColumnData(column);
+                    // ColumnInfo info = computeColumnInfoForComplexColum(before, after, isViewDeletion);
+                    // if (info != null)
+                    // map.put(column.name.toString(), info);
                     continue;
                 }
                 Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(column);
@@ -602,23 +633,6 @@ public class ViewUpdateGenerator
                 map.put(data.column().name.toString(), columnInfo);
             }
         }
-        // for (Cell data : row.cells())
-        // {
-        // // TODO later, a column may be not selected but filtered. maybe fine, but good to reduce redundancy.
-        // if (!view.getDefinition().includes(data.column().name)
-        // && !view.baseNonPKColumnsInViewPK.contains(data.column()))
-        // {
-        // if (isViewDeletion && data == null)
-        // continue;
-        // // if it's live cell, no need to include in deletion
-        // if (isViewDeletion && data.isLive(nowInSec))
-        // continue;
-        // ColumnInfo columnInfo = new ColumnInfo(data.timestamp(),
-        // data.ttl(),
-        // data.localDeletionTime());
-        // map.put(data.column().name.toString(), columnInfo);
-        // }
-        // }
         return map;
     }
 
@@ -672,11 +686,6 @@ public class ViewUpdateGenerator
         assert view.baseNonPKColumnsInViewPK.size() <= 1; // This may change, but is currently an enforced limitation
 
         LivenessInfo baseLiveness = baseRow.primaryKeyLivenessInfo();
-
-        // for keyOrConditions
-        Map<String, ColumnInfo> keyOrConditions = extractKeyOrConditions(null, baseRow, false);
-
-        Map<String, ColumnInfo> unselected = extractUnselected(null, baseRow, false);
 
         return baseLiveness;
     }

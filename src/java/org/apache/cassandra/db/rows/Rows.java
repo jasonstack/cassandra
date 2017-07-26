@@ -87,8 +87,8 @@ public abstract class Rows
     public static int collectStats(Row row, PartitionStatisticsCollector collector)
     {
         // FIXME temp solution
-        if (row.isEmpty())
-            return 0;
+        // if (row.isEmpty())
+        // return 0;
         assert !row.isEmpty();
 
         collector.update(row.primaryKeyLivenessInfo());

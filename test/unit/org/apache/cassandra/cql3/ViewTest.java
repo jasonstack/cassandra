@@ -32,6 +32,7 @@ import junit.framework.Assert;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.datastax.driver.core.ResultSet;
@@ -270,6 +271,77 @@ public class ViewTest extends CQLTester
             FBUtilities.waitOnFutures(ks.flush());
 
         assertRows(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, null, 1));
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+        updateView("DELETE v2 FROM %s USING TIMESTAMP 4 WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+    }
+
+    // FIXME for now, don't support complex column in unselected columns
+    @Ignore
+    @Test
+    public void testUpdateColumnNotInViewComplexColumn() throws Throwable
+    {
+        testUpdateColumnNotInViewComplexColumn(true);
+        testUpdateColumnNotInViewComplexColumn(false);
+    }
+
+
+    private void testUpdateColumnNotInViewComplexColumn(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p int, c int, v1 list<int>, v2 set<int>, v3 map<int,int>, primary key(p, c))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT p, c FROM %%s WHERE p IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c, p);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        updateView("UPDATE %s USING TIMESTAMP 0 SET v1 = v1 + [1] WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, list(1), null, null));
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+        updateView("UPDATE %s USING TIMESTAMP 1 SET v1 = v1 - [1] WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+
+        updateView("UPDATE %s USING TIMESTAMP 1 SET v1 = v1 + [1] WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+
+        updateView("UPDATE %s USING TIMESTAMP 2 SET v2 = v2 + {1} WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, null, set(1), null));
+        assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
+
+        updateView("DELETE v1 FROM %s USING TIMESTAMP 3 WHERE p = 0 AND c = 0");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, null, set(1), null));
         assertRows(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
 
         updateView("DELETE v2 FROM %s USING TIMESTAMP 4 WHERE p = 0 AND c = 0");
@@ -962,6 +1034,39 @@ public class ViewTest extends CQLTester
         {
             Assert.assertEquals("Cannot use Duration column 'result' in PRIMARY KEY of materialized view", e.getMessage());
         }
+    }
+
+    @Test
+    public void testFrozenCollectionsWithComplexInnerType() throws Throwable
+    {
+        createTable("CREATE TABLE %s (" +
+                "k int, " +
+                "intval int, " +
+                "listval frozen<list<tuple<text,text>>>, " +
+                "PRIMARY KEY (k))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+
+        createView("mv",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE k IS NOT NULL AND listval IS NOT NULL PRIMARY KEY (k, listval)");
+
+        updateView("INSERT INTO %s (k, intval, listval) VALUES (?, ?, fromJson(?))",
+                   0,
+                   0,
+                   "[[\"a\",\"1\"], [\"b\",\"2\"], [\"c\",\"3\"]]");
+        assertRows(execute("SELECT k, listval FROM %s WHERE k = ?", 0),
+                   row(0, list(tuple("a", "1"), tuple("b", "2"), tuple("c", "3"))));
+        assertRows(execute("SELECT k, listval from mv"),
+                   row(0, list(tuple("a", "1"), tuple("b", "2"), tuple("c", "3"))));
+
+        updateView("INSERT INTO %s (k, listval) VALUES (?, fromJson(?))",
+                   0,
+                   "[[\"a\",\"1\"], [\"b\",\"2\"], [\"c\",\"3\"]]");
+        assertRows(execute("SELECT k, listval FROM %s WHERE k = ?", 0),
+                   row(0, list(tuple("a", "1"), tuple("b", "2"), tuple("c", "3"))));
+        assertRows(execute("SELECT k, listval from mv"),
+                   row(0, list(tuple("a", "1"), tuple("b", "2"), tuple("c", "3"))));
     }
 
     @Test
