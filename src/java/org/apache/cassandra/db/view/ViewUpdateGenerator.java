@@ -391,12 +391,7 @@ public class ViewUpdateGenerator
     private void deleteOldEntryInternal(Row existingBaseRow, Row mergedBaseRow)
     {
         startNewUpdate(existingBaseRow);
-        // if modification on base is row deletion, view should use deletion
-        if (!mergedBaseRow.hasLiveData(nowInSec))
-        {
-            // for base deletion
-            currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
-        }
+        currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
         currentViewEntryBuilder.addVirtualCells(computerVirtualCells(existingBaseRow, mergedBaseRow, true));
         submitUpdate();
     }

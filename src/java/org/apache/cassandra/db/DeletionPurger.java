@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.db;
 
+import org.apache.cassandra.db.rows.VirtualCells;
+
 public interface DeletionPurger
 {
     public static final DeletionPurger PURGE_ALL = (ts, ldt) -> true;

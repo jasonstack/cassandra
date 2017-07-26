@@ -394,8 +394,7 @@ public class BTreeRow extends AbstractRow
     public Row updateAllTimestamp(long newTimestamp)
     {
         LivenessInfo newInfo = primaryKeyLivenessInfo.isEmpty() ? primaryKeyLivenessInfo : primaryKeyLivenessInfo.withUpdatedTimestamp(newTimestamp);
-        // If the deletion is shadowable and the row has a timestamp, we'll forced the deletion timestamp to be less than the row one, so we
-        // should get rid of said deletion. FIXME
+
         DeletionTime newDeletion = deletion.isLive()
                 ? DeletionTime.LIVE
                 : new DeletionTime(newTimestamp - 1, deletion.localDeletionTime());
@@ -430,7 +429,8 @@ public class BTreeRow extends AbstractRow
 
         LivenessInfo newInfo = purger.shouldPurge(primaryKeyLivenessInfo, nowInSec) ? LivenessInfo.EMPTY : primaryKeyLivenessInfo;
         DeletionTime newDeletion = purger.shouldPurge(deletion) ? DeletionTime.LIVE : deletion;
-        VirtualCells virCells = virtualCells.anyLiveUnselected(nowInSec) ? virtualCells
+        VirtualCells virCells = virtualCells.anyLiveUnselected(nowInSec) || virtualCells.unselected().isEmpty()
+                ? virtualCells
                 : VirtualCells.create(virtualCells.keyOrConditions(), Collections.EMPTY_MAP);
         return transformAndFilter(newInfo, newDeletion, virCells, (cd) -> cd.purge(purger, nowInSec));
     }
@@ -824,12 +824,6 @@ public class BTreeRow extends AbstractRow
                 getCells().resolve(resolver);
             Object[] btree = getCells().build();
 
-            // FIXME handle per row-builder checks
-            if (virtualCells.shouldWipeRow(FBUtilities.nowInSeconds()))
-            {
-                btree = BTree.empty();
-                primaryKeyLivenessInfo = LivenessInfo.EMPTY;
-            }
             int minDeletionTime = minDeletionTime(btree, primaryKeyLivenessInfo, deletion);
             Row row = BTreeRow.create(clustering,
                                       primaryKeyLivenessInfo,

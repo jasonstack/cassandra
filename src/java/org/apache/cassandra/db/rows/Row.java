@@ -575,16 +575,6 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                 if (data != null)
                     dataBuffer.add(data);
             }
-            if (virtualCells.shouldWipeRow(nowInSec))
-            {
-                // wipe entire row(cells, livenessInfo), keep deletion
-                rowInfo = LivenessInfo.EMPTY;
-                return BTreeRow.create(clustering,
-                                       rowInfo,
-                                       rowDeletion,
-                                       virtualCells,
-                                       BTree.empty());
-            }
             // Because some data might have been shadowed by the 'activeDeletion', we could have an empty row
             return rowInfo.isEmpty() && rowDeletion.isLive() && dataBuffer.isEmpty() && virtualCells.isEmpty()
                  ? null
