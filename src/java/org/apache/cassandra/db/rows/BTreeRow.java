@@ -422,23 +422,28 @@ public class BTreeRow extends AbstractRow
 
     public Row purge(DeletionPurger purger, int nowInSec)
     {
-        if (!hasDeletion(nowInSec))
+        // handle per row purger
+        if (virtualCells.shouldWipeRow(nowInSec))
+            return null;
+        if (!hasDeletion(nowInSec) && virtualCells.isEmpty())
             return this;
 
         LivenessInfo newInfo = purger.shouldPurge(primaryKeyLivenessInfo, nowInSec) ? LivenessInfo.EMPTY : primaryKeyLivenessInfo;
         DeletionTime newDeletion = purger.shouldPurge(deletion) ? DeletionTime.LIVE : deletion;
-
-        return transformAndFilter(newInfo, newDeletion, virtualCells, (cd) -> cd.purge(purger, nowInSec));
+        VirtualCells virCells = virtualCells.anyLiveUnselected(nowInSec) ? virtualCells
+                : VirtualCells.create(virtualCells.getKeyOrConditions(), Collections.EMPTY_MAP);
+        return transformAndFilter(newInfo, newDeletion, virCells, (cd) -> cd.purge(purger, nowInSec));
     }
 
     private Row transformAndFilter(LivenessInfo info, DeletionTime deletion, VirtualCells virCells, Function<ColumnData, ColumnData> function)
     {
         Object[] transformed = BTree.transformAndFilter(btree, function);
 
-        if (btree == transformed && info == this.primaryKeyLivenessInfo && deletion == this.deletion)
+        if (btree == transformed && info == this.primaryKeyLivenessInfo && deletion == this.deletion
+                && virCells == this.virtualCells)
             return this;
 
-        if (info.isEmpty() && deletion.isLive() && BTree.isEmpty(transformed) && virCells.isEmpty())
+        if (info.isEmpty() && deletion.isLive() && BTree.isEmpty(transformed) && virCells.getUnselected().isEmpty())
             return null;
 
         int minDeletionTime = minDeletionTime(transformed, info, deletion);
@@ -819,7 +824,7 @@ public class BTreeRow extends AbstractRow
                 getCells().resolve(resolver);
             Object[] btree = getCells().build();
 
-            // FIXME handle per row checks
+            // FIXME handle per row-builder checks
             if (virtualCells.shouldWipeRow(FBUtilities.nowInSeconds()))
             {
                 btree = BTree.empty();

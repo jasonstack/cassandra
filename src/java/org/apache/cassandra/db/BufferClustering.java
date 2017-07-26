@@ -18,9 +18,6 @@
 package org.apache.cassandra.db;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
-
-import org.apache.hadoop.record.FromCpp;
 
 /**
  * The clustering column values for a row.
@@ -39,16 +36,4 @@ public class BufferClustering extends AbstractBufferClusteringPrefix implements 
     {
         super(Kind.CLUSTERING, values);
     }
-
-    @Override
-    public String toString()
-    {
-        String string = "";
-        for (ByteBuffer buffer : values)
-        {
-            string += new String(buffer.array(), Charset.forName("UTF-8"));
-        }
-        return "BufferClustering: " + string;
-    }
-
 }

@@ -129,18 +129,7 @@ public class ViewUpdateGenerator
                 deleteOldEntry(existingBaseRow, mergedBaseRow);
                 return;
             case UPDATE_EXISTING:
-                if (!matchesViewFilter(existingBaseRow))
-                {
-                    createEntry(mergedBaseRow);
-                    return;
-                }
-                if (!matchesViewFilter(mergedBaseRow))
-                {
-                    deleteOldEntryInternal(existingBaseRow, mergedBaseRow);
-                    return;
-                }
-                createEntry(mergedBaseRow);
-                // updateEntry(existingBaseRow, mergedBaseRow);
+                updateEntry(existingBaseRow, mergedBaseRow);
                 return;
             case SWITCH_ENTRY:
                 createEntry(mergedBaseRow);
@@ -252,10 +241,7 @@ public class ViewUpdateGenerator
         startNewUpdate(baseRow);
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow));
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
-
-        Map<String, ColumnInfo> keyOrConditions = extractKeyOrConditions(null, baseRow, false);
-        Map<String, ColumnInfo> unselected = extractUnselected(null, baseRow, true);
-        currentViewEntryBuilder.addVirtualCells(VirtualCells.create(keyOrConditions, unselected));
+        currentViewEntryBuilder.addVirtualCells(computerVirtualCells(null, baseRow, false));
 
         for (ColumnData data : baseRow)
         {
@@ -301,6 +287,8 @@ public class ViewUpdateGenerator
         // faster) to compute those info than to check if they have changed so we keep it simple.
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow));
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
+
+        currentViewEntryBuilder.addVirtualCells(computerVirtualCells(existingBaseRow, mergedBaseRow, false));
 
         // We only add to the view update the cells from mergedBaseRow that differs from
         // existingBaseRow. For that and for speed we can just cell pointer equality: if the update
@@ -406,20 +394,34 @@ public class ViewUpdateGenerator
         startNewUpdate(existingBaseRow);
         DeletionTime viewDeletion = null;
         // if modification on base is row deletion, view should use regular tombstone; otherwise, shadowable
-        if (mergedBaseRow.deletion().isLive())
+        if (mergedBaseRow.hasLiveData(nowInSec))
         {
             // for switch entry
             // add Virtual Cells
-            Map<String, ColumnInfo> keyOrConditions = extractKeyOrConditions(existingBaseRow, mergedBaseRow, true);
-            Map<String, ColumnInfo> unselected = extractUnselected(existingBaseRow, mergedBaseRow, true);
-            currentViewEntryBuilder.addVirtualCells(VirtualCells.create(keyOrConditions, unselected));
+            // FIXME
         }
         else
         {
             // for base deletion
             currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
         }
+        currentViewEntryBuilder.addVirtualCells(computerVirtualCells(existingBaseRow, mergedBaseRow, true));
         submitUpdate();
+    }
+
+    /**
+     * @param existingBaseRow could be null if it's CreateEntry
+     * @param mergedBaseRow
+     * @param isViewDeletion if it's CreateEntry/UpdateExisting in view, false; otherwise true
+     * @return
+     */
+    private VirtualCells computerVirtualCells(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
+    {
+        Map<String, ColumnInfo> keyOrConditions = extractKeyOrConditions(existingBaseRow,
+                                                                         mergedBaseRow,
+                                                                         isViewDeletion);
+        Map<String, ColumnInfo> unselected = extractUnselected(existingBaseRow, mergedBaseRow, isViewDeletion);
+        return VirtualCells.create(keyOrConditions, unselected);
     }
 
     /**
@@ -677,27 +679,6 @@ public class ViewUpdateGenerator
         Map<String, ColumnInfo> unselected = extractUnselected(null, baseRow, false);
 
         return baseLiveness;
-    }
-
-    /**
-     * let view deletion timestamp same as base pk's timestamp.
-     * 
-     * @param baseRow
-     * @param mergedDeletion
-     * @return
-     */
-    private long computeTimestampForEntryDeletion(Row baseRow)
-    {
-        // We delete the old row with it's row entry timestamp using a shadowable deletion.
-        // We must make sure that the deletion deletes everything in the entry (or the entry will
-        // still show up), so we must use the bigger timestamp found in the existing row (for any
-        // column included in the view at least).
-        // TODO: We have a problem though: if the entry is "resurected" by a later update, we would
-        // need to ensure that the timestamp for then entry then is bigger than the tombstone
-        // we're just inserting, which is not currently guaranteed.
-        // This is a bug for a separate ticket though.
-        long timestamp = baseRow.primaryKeyLivenessInfo().timestamp(); 
-        return timestamp;
     }
 
     private void addColumnData(ColumnMetadata viewColumn, ColumnData baseTableData)

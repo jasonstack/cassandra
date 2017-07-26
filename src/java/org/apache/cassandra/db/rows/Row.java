@@ -520,6 +520,10 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             {
                 Row row = rows[lastRowSet];
                 assert row != null;
+                if (row.virtualCells().shouldWipeRow(nowInSec))
+                {
+                    return null;
+                }
                 return row;
             }
             VirtualCells virtualCells = VirtualCells.EMPTY;

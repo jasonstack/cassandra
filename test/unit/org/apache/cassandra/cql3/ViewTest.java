@@ -87,13 +87,19 @@ public class ViewTest extends CQLTester
         ks.getColumnFamilyStore("mv").disableAutoCompaction();
 
         updateView("INSERT INTO %s (k,c,a,b) VALUES(1,1,1,1) USING TIMESTAMP 0");
+        assertRows(execute("SELECT * from mv"), row(1, 1, 1, 1));
         updateView("UPDATE %s USING TIMESTAMP 2 SET b=2 WHERE k=1 AND c=1");
+        assertRows(execute("SELECT * from mv"), row(1, 1, 1, 2));
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT * from mv"), row(1, 1, 1, 2));
         updateView("UPDATE %s USING TIMESTAMP 2 SET a=2 WHERE k=1 AND c=1");
+        assertRows(execute("SELECT * from mv"), row(1, 1, 2, 2));
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT * from mv"), row(1, 1, 2, 2));
         updateView("UPDATE %s USING TIMESTAMP 3 SET b=3 WHERE k=1 AND c=1");
+        assertRows(execute("SELECT * from mv"), row(1, 1, 2, 3));
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
         assertRows(execute("SELECT * from %s"), row(1, 1, 2, 3));
@@ -395,60 +401,27 @@ public class ViewTest extends CQLTester
         ks.getColumnFamilyStore("mv").disableAutoCompaction();
 
         // sstable-1, Set initial values TS=1
-        executeNet(protocolVersion, "INSERT INTO %s(k, a, b) VALUES (1, 1, 1) USING TIMESTAMP 0;");
+        updateView("INSERT INTO %s(k, a, b) VALUES (1, 1, 1) USING TIMESTAMP 0;");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
-        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 10 SET b = 2 WHERE k = 1;");
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 1, 1));
+        updateView("UPDATE %s USING TIMESTAMP 10 SET b = 2 WHERE k = 1;");
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 1, 2));
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
-        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 2 SET a = 2 WHERE k = 1;");
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 1, 2));
+        updateView("UPDATE %s USING TIMESTAMP 2 SET a = 2 WHERE k = 1;");
+        assertRows(execute("SELECT k,a,b from mv"), row(1, 2, 2));
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
-        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 3 SET a = 1 WHERE k = 1;");
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-
-        // correct result should be (1,1,2)
-        assertRows(execute("SELECT k,a,b from mv"), row(1, 1, 2));
-        assertRows(execute("SELECT k,a,b from %s"), row(1, 1, 2));
-    }
-
-    /**
-     * only pkOrConditions
-     * 
-     * @throws Throwable
-     */
-    @Test
-    public void test11500() throws Throwable
-    {
-        boolean flush = true;
-        createTable("CREATE TABLE %s (k int PRIMARY KEY, a int, b int);");
-
-        execute("USE " + keyspace());
-        executeNet(protocolVersion, "USE " + keyspace());
-        Keyspace ks = Keyspace.open(keyspace());
-
-        createView("mv",
-                   "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE k IS NOT NULL AND a IS NOT NULL PRIMARY KEY (k, a);");
-        ks.getColumnFamilyStore("mv").disableAutoCompaction();
-
-        // sstable-1, Set initial values TS=1
-        executeNet(protocolVersion, "INSERT INTO %s(k, a, b) VALUES (1, 1, 1) USING TIMESTAMP 0;");
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 10 SET b = 2 WHERE k = 1;");
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 2 SET a = 2 WHERE k = 1;");
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-        executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 3 SET a = 1 WHERE k = 1;");
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 2, 2));
+        updateView("UPDATE %s USING TIMESTAMP 3 SET a = 1 WHERE k = 1;");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
 
         // correct result should be (1,1,2)
-        assertRows(execute("SELECT k,a,b from mv"), row(1, 1, 2));
-        assertRows(execute("SELECT k,a,b from %s"), row(1, 1, 2));
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 1, 2));
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from %s"), row(1, 1, 2));
     }
 
     private void complexTimestampWithbaseNonPKColumnsInViewPKRegularAndShadowableDeletionTest(boolean flush)
@@ -491,14 +464,14 @@ public class ViewTest extends CQLTester
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
 
-        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(2, 3, null, null));
+        assertRowsIgnoringOrder(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(2, 3, null, null));
         // sstable-5
         executeNet(protocolVersion, "update %s using timestamp 5 set v1 = 1 where p = 3;");
 
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
 
-        assertRows(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, null, null));
+        assertRowsIgnoringOrder(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, null, null));
 
         if (flush)
         {
@@ -1032,7 +1005,7 @@ public class ViewTest extends CQLTester
         executeNet(protocolVersion, "UPDATE %s USING TIMESTAMP 3 SET c = ? WHERE a = ? and b = ? ", 0, 0, 0);
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
-        assertRows(execute("SELECT d from mv WHERE c = ? and a = ? and b = ?", 1, 0, 0), row(11));
+        assertRows(execute("SELECT d from mv WHERE c = ? and a = ? and b = ?", 1, 0, 0));
 
         if(flush)
         {
