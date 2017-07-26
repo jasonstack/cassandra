@@ -24,7 +24,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.cassandra.db.DeletionTime;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.utils.FBUtilities;
 import org.junit.Test;
 
@@ -85,8 +85,8 @@ public class VirtualCellsTest
         VirtualCells merged = vc1.merge(vc2);
         assertFalse(merged.isEmpty());
         assertFalse(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
-        assertEquals(liveVirtualCells("a", 2L, "b", 2L), merged.getKeyOrConditions());
-        assertEquals(tombstoneVirtualCellc("c", 2L, 1000), merged.getUnselected());
+        assertEquals(liveVirtualCells("a", 2L, "b", 2L), merged.keyOrConditions());
+        assertEquals(tombstoneVirtualCellc("c", 2L, 1000), merged.unselected());
 
         // tombstone keyOrConditions, tombstone unselected
         vc1 = VirtualCells.create(tombstoneVirtualCellc("a", 1L, 100, "b", 2L, 100), liveVirtualCells("c", 1L));
@@ -95,8 +95,19 @@ public class VirtualCellsTest
         merged = vc1.merge(vc2);
         assertFalse(merged.isEmpty());
         assertTrue(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
-        assertEquals(tombstoneVirtualCellc("a", 1L, 100, "b", 2L, 100), merged.getKeyOrConditions());
-        assertEquals(tombstoneVirtualCellc("c", 2L, 1000), merged.getUnselected());
+        assertEquals(tombstoneVirtualCellc("a", 1L, 100, "b", 2L, 100), merged.keyOrConditions());
+        assertEquals(tombstoneVirtualCellc("c", 2L, 1000), merged.unselected());
+
+        // tombstone keyOrConditions
+        vc1 = VirtualCells.create(liveVirtualCells("a", 1L), tombstoneVirtualCellc("c", 2L, 1000));
+
+        vc2 = VirtualCells.create(tombstoneVirtualCellc("b", 2L, 100), liveVirtualCells("c", 1L));
+
+        merged = vc1.merge(vc2);
+        assertFalse(merged.isEmpty());
+        assertTrue(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
+        assertEquals(tombstoneVirtualCellc("a", 1L, Integer.MAX_VALUE, "b", 2L, 100), merged.keyOrConditions());
+        assertEquals(tombstoneVirtualCellc("c", 2L, 1000), merged.unselected());
     }
 
     /**

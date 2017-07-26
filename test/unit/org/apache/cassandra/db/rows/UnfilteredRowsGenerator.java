@@ -27,7 +27,7 @@ import org.junit.Assert;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.Int32Type;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.db.rows.Unfiltered.Kind;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.btree.BTree;

@@ -33,7 +33,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.schema.DroppedColumn;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.btree.BTree;
@@ -431,7 +431,7 @@ public class BTreeRow extends AbstractRow
         LivenessInfo newInfo = purger.shouldPurge(primaryKeyLivenessInfo, nowInSec) ? LivenessInfo.EMPTY : primaryKeyLivenessInfo;
         DeletionTime newDeletion = purger.shouldPurge(deletion) ? DeletionTime.LIVE : deletion;
         VirtualCells virCells = virtualCells.anyLiveUnselected(nowInSec) ? virtualCells
-                : VirtualCells.create(virtualCells.getKeyOrConditions(), Collections.EMPTY_MAP);
+                : VirtualCells.create(virtualCells.keyOrConditions(), Collections.EMPTY_MAP);
         return transformAndFilter(newInfo, newDeletion, virCells, (cd) -> cd.purge(purger, nowInSec));
     }
 
@@ -443,7 +443,7 @@ public class BTreeRow extends AbstractRow
                 && virCells == this.virtualCells)
             return this;
 
-        if (info.isEmpty() && deletion.isLive() && BTree.isEmpty(transformed) && virCells.getUnselected().isEmpty())
+        if (info.isEmpty() && deletion.isLive() && BTree.isEmpty(transformed) && virCells.unselected().isEmpty())
             return null;
 
         int minDeletionTime = minDeletionTime(transformed, info, deletion);

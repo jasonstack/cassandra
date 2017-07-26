@@ -58,7 +58,7 @@ import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.index.transactions.*;
@@ -1327,7 +1327,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                 @Override
                 public void onVirtualCells(int i, Clustering clustering, VirtualCells merged, VirtualCells original)
                 {
-                    // FIXME
+                    // not used in Secondary Index
                 }
             };
 

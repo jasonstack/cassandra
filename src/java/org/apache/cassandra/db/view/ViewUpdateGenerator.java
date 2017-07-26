@@ -31,7 +31,7 @@ import org.apache.cassandra.cql3.restrictions.Restriction;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.rows.*;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CompositeType;
@@ -391,15 +391,8 @@ public class ViewUpdateGenerator
     private void deleteOldEntryInternal(Row existingBaseRow, Row mergedBaseRow)
     {
         startNewUpdate(existingBaseRow);
-        DeletionTime viewDeletion = null;
-        // if modification on base is row deletion, view should use regular tombstone; otherwise, shadowable
-        if (mergedBaseRow.hasLiveData(nowInSec))
-        {
-            // for switch entry
-            // add Virtual Cells
-            // FIXME
-        }
-        else
+        // if modification on base is row deletion, view should use deletion
+        if (!mergedBaseRow.hasLiveData(nowInSec))
         {
             // for base deletion
             currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
@@ -508,45 +501,6 @@ public class ViewUpdateGenerator
         return filter.isSatisfiedBy(baseMetadata, baseDecoratedKey, mergedBaseRow, nowInSec);
     }
 
-    private long getComplexColumnMaxLiveTimestamp(ComplexColumnData complexColumn)
-    {
-        if (complexColumn == null)
-            return LivenessInfo.NO_TIMESTAMP;
-        DeletionTime deletionTime = complexColumn.complexDeletion();
-        Iterator<Cell> cells = complexColumn.iterator();
-        long max = LivenessInfo.NO_TIMESTAMP;
-        while (cells.hasNext())
-        {
-            Cell element = cells.next();
-            if (element.isLive(nowInSec) && element.timestamp() > deletionTime.markedForDeleteAt()
-                    && element.timestamp() > max)
-            {
-                max = element.timestamp();
-            }
-        }
-        return max;
-    }
-
-    // wrong... need to generate a synthetic column
-    private boolean isLive(ComplexColumnData complexColumn)
-    {
-        if (complexColumn == null)
-            return false;
-        DeletionTime deletionTime = complexColumn.complexDeletion();
-        Iterator<Cell> cells = complexColumn.iterator();
-        long max = LivenessInfo.NO_TIMESTAMP;
-        while (cells.hasNext())
-        {
-            Cell element = cells.next();
-            if (element.isLive(nowInSec) && element.timestamp() > deletionTime.markedForDeleteAt()
-                    && element.timestamp() > max)
-            {
-                max = element.timestamp();
-            }
-        }
-        return max != LivenessInfo.NO_TIMESTAMP;
-    }
-
     // private ColumnInfo computeColumnInfoForComplexColumInsertion(ComplexColumnData complexColumn)
     // {
     // if (complexColumn == null)
@@ -595,7 +549,7 @@ public class ViewUpdateGenerator
     // return info;
     // }
 
-    private Map<String, ColumnInfo> extractUnselected(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)// FIXME
+    private Map<String, ColumnInfo> extractUnselected(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
     {
         Map<String, ColumnInfo> map = new HashMap<>();
         for (ColumnMetadata column : view.getDefinition().baseTableMetadata().columns())

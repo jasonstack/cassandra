@@ -26,7 +26,7 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.utils.MergeIterator;
 import org.apache.cassandra.utils.WrappedInt;
 
@@ -86,9 +86,6 @@ public abstract class Rows
      */
     public static int collectStats(Row row, PartitionStatisticsCollector collector)
     {
-        // FIXME temp solution
-        // if (row.isEmpty())
-        // return 0;
         assert !row.isEmpty();
 
         collector.update(row.primaryKeyLivenessInfo());
@@ -288,8 +285,6 @@ public abstract class Rows
 
         if (rowDeletion.deletes(mergedInfo))
             mergedInfo = LivenessInfo.EMPTY;
-        // else if (rowDeletion.isShadowedBy(mergedInfo)) FIXME
-        // rowDeletion = DeletionTime.LIVE;
 
         builder.addPrimaryKeyLivenessInfo(mergedInfo);
         builder.addRowDeletion(rowDeletion);

@@ -26,7 +26,7 @@ import com.google.common.collect.Collections2;
 import net.nicoulaj.compilecommand.annotations.Inline;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -258,59 +258,13 @@ public class UnfilteredSerializer
         header.writeDeletionTime(deletion, out);
     }
 
-    // TODO refactor into ColumnInfo.serializer
-    private long serializeRowVirtualCellsSize(VirtualCells virtualCells, SerializationHeader header)
-    {
-        long size = 0;
-        if (!virtualCells.isEmpty())
-        {
-            Map<String, ColumnInfo> keyOrConditions = virtualCells.getKeyOrConditions();
-            size += serializeRowVirtualCellsPayloadSize(keyOrConditions, header);
-
-            Map<String, ColumnInfo> unselected = virtualCells.getUnselected();
-            size += serializeRowVirtualCellsPayloadSize(unselected, header);
-        }
-        return size;
-    }
-
-    private long serializeRowVirtualCellsPayloadSize(Map<String, ColumnInfo> payload, SerializationHeader header)
-    {
-        long size = 0;
-        size += TypeSizes.sizeof(payload.size());
-        for (Map.Entry<String, ColumnInfo> data : payload.entrySet())
-        {
-            ColumnInfo info = data.getValue();
-            size += header.timestampSerializedSize(info.timestamp());
-
-            size += header.localDeletionTimeSerializedSize(info.localDeletionTime());
-            size += header.ttlSerializedSize(info.ttl());
-        }
-        return size;
-    }
-
     private void serializeRowVirtualCells(VirtualCells virtualCells,
                                           SerializationHeader header,
                                           DataOutputPlus out) throws IOException
     {
         if (!virtualCells.isEmpty())
         {
-            serializeRowVirtualCellsPayload(virtualCells.getKeyOrConditions(), header, out);
-            serializeRowVirtualCellsPayload(virtualCells.getUnselected(), header, out);
-        }
-    }
-
-    private void serializeRowVirtualCellsPayload(Map<String, ColumnInfo> payload,
-                                              SerializationHeader header,
-                                              DataOutputPlus out) throws IOException
-    {
-        out.writeInt(payload.size());
-        for (Map.Entry<String, ColumnInfo> data : payload.entrySet())
-        {
-            ColumnInfo info = data.getValue();
-            out.writeUTF(data.getKey());
-            header.writeTTL(info.ttl(), out);
-            header.writeTimestamp(info.timestamp(), out);
-            header.writeLocalDeletionTime(info.localDeletionTime(), out);
+            VirtualCells.serializer.serialize(virtualCells, out, header);
         }
     }
 
@@ -320,29 +274,11 @@ public class UnfilteredSerializer
     {
         if ((extendedFlags & HAS_ROW_VIRTUAL_CELLS) != 0)
         {
-            Map<String, ColumnInfo> keyOrConditions = deserializeRowVirtualCellsPayload(header, in);
-            Map<String, ColumnInfo> unselected = deserializeRowVirtualCellsPayload(header, in);
-
-            return VirtualCells.create(keyOrConditions, unselected);
+            return VirtualCells.serializer.deserialize(in, header);
         }
         return VirtualCells.EMPTY;
     }
 
-    private Map<String, ColumnInfo> deserializeRowVirtualCellsPayload(SerializationHeader header,
-                                                                 DataInputPlus in) throws IOException
-    {
-        Map<String, ColumnInfo> payload = new HashMap<>();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++)
-        {
-            String key = in.readUTF();
-            int ttl = header.readTTL(in);
-            long timestamp = header.readTimestamp(in);
-            int localDeletionTime = header.readLocalDeletionTime(in);
-            payload.put(key, new ColumnInfo(timestamp, ttl, localDeletionTime));
-        }
-        return payload;
-    }
 
     private LivenessInfo deserializeRowLiveness(SerializationHeader header,
                                                 DataInputPlus in,
@@ -502,7 +438,7 @@ public class UnfilteredSerializer
         boolean hasComplexDeletion = row.hasComplexDeletion();
         boolean hasAllColumns = (row.size() == headerColumns.size());
 
-        size += serializeRowVirtualCellsSize(virtualCells, header);
+        size += VirtualCells.serializer.serializedSize(virtualCells, header);
         size += serializeRowLivenessSize(pkLiveness, header);
         size += serializeRowDeletionSize(deletion, header);
 

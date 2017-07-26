@@ -26,7 +26,7 @@ import com.sun.org.apache.bcel.internal.generic.ReturnInstruction;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.paxos.Commit;
@@ -91,6 +91,18 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      */
     public LivenessInfo primaryKeyLivenessInfo();
 
+    /**
+     * Only for Materialized View. Additional information for:
+     * <p/>
+     * 1. base column used in view primary key, base columns used in view's filter conditions. If any of these column is
+     * not alive, entire view row is considered dead regardless LivenessInfo and DeletionTime.(this rule has biggest
+     * priority)
+     * <p/>
+     * 2. and base columns not selected in view. if any of these column is alive, it means view's primary key is alive
+     * regards LivenessInfo or liveness of view's columns
+     * 
+     * @return
+     */
     public VirtualCells virtualCells();
 
     /**

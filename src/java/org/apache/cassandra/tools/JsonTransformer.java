@@ -48,7 +48,7 @@ import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
@@ -298,8 +298,8 @@ public final class JsonTransformer
             json.writeFieldName("Virtual Cells");
             objectIndenter.setCompact(true);
             json.writeStartObject();
-            serializeVirtualCellsPayload("KeyOrConditions", virtualCells.getKeyOrConditions());
-            serializeVirtualCellsPayload("Unselected", virtualCells.getUnselected());
+            serializeVirtualCellsPayload("KeyOrConditions", virtualCells.keyOrConditions());
+            serializeVirtualCellsPayload("Unselected", virtualCells.unselected());
             json.writeEndObject();
             objectIndenter.setCompact(false);
         }

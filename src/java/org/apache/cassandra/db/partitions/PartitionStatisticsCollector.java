@@ -19,7 +19,7 @@ package org.apache.cassandra.db.partitions;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.Cell;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 
 public interface PartitionStatisticsCollector
 {

@@ -19,7 +19,7 @@ package org.apache.cassandra.db.rows;
 
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.rows.ColumnInfo.VirtualCells;
+import org.apache.cassandra.db.rows.VirtualCells;
 
 /**
  * Interface that allows to act on the result of merging multiple rows.
