@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db;
 
+import org.apache.cassandra.db.rows.ColumnInfo;
 import org.apache.cassandra.db.rows.VirtualCells;
 
 public interface DeletionPurger
@@ -33,5 +34,24 @@ public interface DeletionPurger
     public default boolean shouldPurge(LivenessInfo liveness, int nowInSec)
     {
         return !liveness.isLive(nowInSec) && shouldPurge(liveness.timestamp(), liveness.localExpirationTime());
+    }
+
+    public default boolean shouldPurgeKeyOrConditions(VirtualCells virtualCells, int nowInSec)
+    {
+        if (!virtualCells.shouldWipeRow(nowInSec))
+            return false;
+        ColumnInfo dead = virtualCells.maxKeyOrConditionsDeadColumn(nowInSec);
+        return shouldPurge(dead.timestamp(), dead.localDeletionTime());// purge by gcBefore or
+                                                                       // select-reconcile(purged-all)
+    }
+
+    public default boolean shouldPurgeUnselected(VirtualCells virtualCells, int nowInSec)
+    {
+        if (virtualCells.unselected().isEmpty() || virtualCells.anyLiveUnselected(nowInSec))
+            return false;
+        // no live columns
+        ColumnInfo dead = virtualCells.maxUnselectedColumn();
+        return shouldPurge(dead.timestamp(), dead.localDeletionTime()); // purge by gcBefore or
+                                                                        // select-reconcile(purged-all)
     }
 }

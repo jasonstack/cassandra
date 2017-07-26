@@ -421,17 +421,24 @@ public class BTreeRow extends AbstractRow
 
     public Row purge(DeletionPurger purger, int nowInSec)
     {
-        // handle per row purger
-        if (virtualCells.shouldWipeRow(nowInSec))
-            return null;
         if (!hasDeletion(nowInSec) && virtualCells.isEmpty())
             return this;
 
         LivenessInfo newInfo = purger.shouldPurge(primaryKeyLivenessInfo, nowInSec) ? LivenessInfo.EMPTY : primaryKeyLivenessInfo;
         DeletionTime newDeletion = purger.shouldPurge(deletion) ? DeletionTime.LIVE : deletion;
-        VirtualCells virCells = virtualCells.anyLiveUnselected(nowInSec) || virtualCells.unselected().isEmpty()
-                ? virtualCells
-                : VirtualCells.create(virtualCells.keyOrConditions(), Collections.EMPTY_MAP);
+
+        // for keyOrConditions, if it's compaction gcBefore or selection after coordinator reconcile, any dead
+        // column will wipe the row.
+        if (purger.shouldPurgeKeyOrConditions(virtualCells, nowInSec))
+        {
+            return null;
+        }
+
+        // for unselected, if it's compaction gcBefore or selection after coordinator reconcile, if no live column,
+        // it becomes empty
+        VirtualCells virCells = purger.shouldPurgeUnselected(virtualCells, nowInSec)
+                ? VirtualCells.create(virtualCells.keyOrConditions(), Collections.EMPTY_MAP)
+                :virtualCells; 
         return transformAndFilter(newInfo, newDeletion, virCells, (cd) -> cd.purge(purger, nowInSec));
     }
 
@@ -443,7 +450,7 @@ public class BTreeRow extends AbstractRow
                 && virCells == this.virtualCells)
             return this;
 
-        if (info.isEmpty() && deletion.isLive() && BTree.isEmpty(transformed) && virCells.unselected().isEmpty())
+        if (info.isEmpty() && deletion.isLive() && BTree.isEmpty(transformed) && virCells.isEmpty())
             return null;
 
         int minDeletionTime = minDeletionTime(transformed, info, deletion);

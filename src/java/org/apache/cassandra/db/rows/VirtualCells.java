@@ -267,4 +267,26 @@ public class VirtualCells
         }
     }
 
+    public ColumnInfo maxUnselectedColumn()
+    {
+        ColumnInfo max = null;
+        for (Map.Entry<String, ColumnInfo> data : unselected().entrySet())
+        {
+            ColumnInfo info = data.getValue();
+            max = max == null ? info : max.merge(info);
+        }
+        return max;
+    }
+
+    public ColumnInfo maxKeyOrConditionsDeadColumn(int nowInSec)
+    {
+        ColumnInfo max = null;
+        for (Map.Entry<String, ColumnInfo> data : keyOrConditions().entrySet())
+        {
+            ColumnInfo info = data.getValue();
+            if (!info.isLive(nowInSec))
+                max = max == null ? info : max.merge(info); // greatest dead column
+        }
+        return max;
+    }
 }

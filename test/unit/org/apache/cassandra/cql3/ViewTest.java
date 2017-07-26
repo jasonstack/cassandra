@@ -165,6 +165,22 @@ public class ViewTest extends CQLTester
                    "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE k IS NOT NULL AND a IS NOT NULL PRIMARY KEY (a, k)");
         ks.getColumnFamilyStore("mv").disableAutoCompaction();
 
+        updateView("UPDATE %s SET a = 1 WHERE k = 1;");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s"), row(1, 1, null));
+        assertRows(execute("SELECT * from mv"), row(1, 1, null));
+
+        updateView("DELETE a FROM %s WHERE k = 1");
+
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRows(execute("SELECT * from %s"));
+        assertEmpty(execute("SELECT * from mv"));
+
         updateView("INSERT INTO %s (k) VALUES (1);");
 
         if (flush)
@@ -572,6 +588,7 @@ public class ViewTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 2, 2));
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
+        ks.getColumnFamilyStore("mv").forceMajorCompaction();
         assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 2, 2));
         updateView("UPDATE %s USING TIMESTAMP 3 SET a = 1 WHERE k = 1;");
         if (flush)
