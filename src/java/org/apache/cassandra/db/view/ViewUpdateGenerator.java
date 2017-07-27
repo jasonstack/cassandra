@@ -407,7 +407,9 @@ public class ViewUpdateGenerator
         Map<String, ColumnInfo> keyOrConditions = extractKeyOrConditions(existingBaseRow,
                                                                          mergedBaseRow,
                                                                          isViewDeletion);
-        Map<String, ColumnInfo> unselected = extractUnselected(existingBaseRow, mergedBaseRow, isViewDeletion);
+        Map<String, ColumnInfo> unselected = keyOrConditions.isEmpty()
+                ? extractUnselected(existingBaseRow, mergedBaseRow, isViewDeletion)
+                : Collections.emptyMap();
         return VirtualCells.create(keyOrConditions, unselected);
     }
 
