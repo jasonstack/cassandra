@@ -150,7 +150,7 @@ public final class TokenRelation extends Relation
      * @return the definition of the columns to which apply the token restriction.
      * @throws InvalidRequestException if the entity cannot be resolved
      */
-    private List<ColumnMetadata> getColumnDefinitions(TableMetadata table)
+    public List<ColumnMetadata> getColumnDefinitions(TableMetadata table)
     {
         List<ColumnMetadata> columnDefs = new ArrayList<>(entities.size());
         for ( ColumnMetadata.Raw raw : entities)

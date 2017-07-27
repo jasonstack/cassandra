@@ -427,6 +427,8 @@ public class BTreeRow extends AbstractRow
         LivenessInfo newInfo = purger.shouldPurge(primaryKeyLivenessInfo, nowInSec) ? LivenessInfo.EMPTY : primaryKeyLivenessInfo;
         DeletionTime newDeletion = purger.shouldPurge(deletion) ? DeletionTime.LIVE : deletion;
 
+        // check to check if unselected columns are dropped..
+
         // for keyOrConditions, if it's compaction gcBefore or selection after coordinator reconcile, any dead
         // column will wipe the row.
         if (purger.shouldPurgeKeyOrConditions(virtualCells, nowInSec))

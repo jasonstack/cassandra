@@ -84,7 +84,7 @@ public class ViewFilteringTest extends CQLTester
     }
 
     @Test
-    public void testMVNonPKFiltering() throws Throwable
+    public void testMVFiltering() throws Throwable
     {
         // CASSANDRA-13547: able to shadow entire view row if base column used in filter condition is modified
         createTable("CREATE TABLE %s (a int, b int, c int, d int, PRIMARY KEY (a))");
@@ -102,12 +102,15 @@ public class ViewFilteringTest extends CQLTester
                    "CREATE MATERIALIZED VIEW %s AS SELECT c FROM %%s WHERE a IS NOT NULL AND b IS NOT NULL and c = 1 PRIMARY KEY (a, b)");
         createView("mv_test5",
                    "CREATE MATERIALIZED VIEW %s AS SELECT c FROM %%s WHERE a IS NOT NULL and d = 1 PRIMARY KEY (a, d)");
+        createView("mv_test6",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT c FROM %%s WHERE a = 1 and d IS NOT NULL PRIMARY KEY (a, d)");
 
         waitForView(keyspace(), "mv_test1");
         waitForView(keyspace(), "mv_test2");
         waitForView(keyspace(), "mv_test3");
         waitForView(keyspace(), "mv_test4");
         waitForView(keyspace(), "mv_test5");
+        waitForView(keyspace(), "mv_test6");
 
         Keyspace ks = Keyspace.open(keyspace());
         ks.getColumnFamilyStore("mv_test1").disableAutoCompaction();
@@ -115,6 +118,8 @@ public class ViewFilteringTest extends CQLTester
         ks.getColumnFamilyStore("mv_test3").disableAutoCompaction();
         ks.getColumnFamilyStore("mv_test4").disableAutoCompaction();
         ks.getColumnFamilyStore("mv_test5").disableAutoCompaction();
+        ks.getColumnFamilyStore("mv_test6").disableAutoCompaction();
+
 
         execute("INSERT INTO %s (a, b, c, d) VALUES (?, ?, ?, ?) using timestamp 0", 1, 1, 1, 1);
         FBUtilities.waitOnFutures(ks.flush());
@@ -125,6 +130,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test5"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 1, 1));
 
         updateView("UPDATE %s using timestamp 1 set c = ? WHERE a=?", 0, 1);
         FBUtilities.waitOnFutures(ks.flush());
@@ -134,6 +140,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 0, 1));
         assertRowCount(execute("SELECT * FROM mv_test4"), 0);
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test5"), row(1, 1, 0));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 1, 0));
 
         updateView("UPDATE %s using timestamp 2 set c = ? WHERE a=?", 1, 1);
         FBUtilities.waitOnFutures(ks.flush());
@@ -144,6 +151,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test5"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 1, 1));
 
         updateView("UPDATE %s using timestamp 3 set d = ? WHERE a=?", 0, 1);
         FBUtilities.waitOnFutures(ks.flush());
@@ -153,6 +161,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 1, 0));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1, 1));
         assertRowCount(execute("SELECT * FROM mv_test5"), 0);
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 0, 1));
 
         updateView("UPDATE %s using timestamp 4 set c = ? WHERE a=?", 0, 1);
         FBUtilities.waitOnFutures(ks.flush());
@@ -162,6 +171,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 0, 0));
         assertRowCount(execute("SELECT * FROM mv_test4"), 0);
         assertRowCount(execute("SELECT * FROM mv_test5"), 0);
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 0, 0));
 
         updateView("UPDATE %s using timestamp 5 set d = ? WHERE a=?", 1, 1);
         FBUtilities.waitOnFutures(ks.flush());
@@ -172,6 +182,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 0, 1));
         assertRowCount(execute("SELECT * FROM mv_test4"), 0);
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test5"), row(1, 1, 0));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 1, 0));
 
         updateView("UPDATE %s using timestamp 6 set c = ? WHERE a=?", 1, 1);
 
@@ -181,15 +192,22 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test5"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 1, 1));
 
         updateView("UPDATE %s using timestamp 7 set b = ? WHERE a=?", 2, 1);
 
+        FBUtilities.waitOnFutures(ks.flush());
+        for (String view : views)
+        {
+            ks.getColumnFamilyStore(view).forceMajorCompaction();
+        }
         // row should be back in views.
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"), row(1, 2, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test2"), row(1, 2, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 2, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 2, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test5"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 1, 1));
 
         updateView("DELETE b, c FROM %s using timestamp 6 WHERE a=?", 1);
 
@@ -199,6 +217,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 2, null, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test5"), row(1, 1, null));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 1, null));
         
         updateView("DELETE FROM %s using timestamp 8 where a=?", 1);
 
@@ -207,6 +226,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowCount(execute("SELECT * FROM mv_test3"), 0);
         assertRowCount(execute("SELECT * FROM mv_test4"), 0);
         assertRowCount(execute("SELECT * FROM mv_test5"), 0);
+        assertRowCount(execute("SELECT * FROM mv_test6"), 0);
 
         updateView("UPDATE %s using timestamp 9 set b = ?,c = ? where a=?", 1, 1, 1); // upsert
 
@@ -215,6 +235,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 1, null));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1, 1));
         assertRows(execute("SELECT * FROM mv_test5"));
+        assertRows(execute("SELECT * FROM mv_test6"));
 
         updateView("DELETE FROM %s using timestamp 10 where a=?", 1);
 
@@ -223,6 +244,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowCount(execute("SELECT * FROM mv_test3"), 0);
         assertRowCount(execute("SELECT * FROM mv_test4"), 0);
         assertRowCount(execute("SELECT * FROM mv_test5"), 0);
+        assertRowCount(execute("SELECT * FROM mv_test6"), 0);
 
         execute("INSERT INTO %s (a, b, c, d) VALUES (?, ?, ?, ?) using timestamp 11", 1, 1, 1, 1);
 
@@ -232,6 +254,7 @@ public class ViewFilteringTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1, 1));
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test5"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test6"), row(1, 1, 1));
 
         updateView("DELETE FROM %s using timestamp 12 where a=?", 1);
 
@@ -240,12 +263,14 @@ public class ViewFilteringTest extends CQLTester
         assertRowCount(execute("SELECT * FROM mv_test3"), 0);
         assertRowCount(execute("SELECT * FROM mv_test4"), 0);
         assertRowCount(execute("SELECT * FROM mv_test5"), 0);
+        assertRowCount(execute("SELECT * FROM mv_test6"), 0);
 
         dropView("mv_test1");
         dropView("mv_test2");
         dropView("mv_test3");
         dropView("mv_test4");
         dropView("mv_test5");
+        dropView("mv_test6");
         dropTable("DROP TABLE %s");
 
     }

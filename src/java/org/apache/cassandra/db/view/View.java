@@ -247,6 +247,12 @@ public class View
                         .map(ColumnMetadata.Raw::toString)
                         .collect(Collectors.joining(", ", "(", ")")));
             }
+            else if (rel.onToken())
+            {
+                sb.append(((TokenRelation) rel).toString());
+                expressions.add(sb.toString());
+                continue;
+            }
             else
             {
                 sb.append(((SingleColumnRelation) rel).getEntity());

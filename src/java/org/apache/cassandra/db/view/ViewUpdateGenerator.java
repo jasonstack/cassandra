@@ -26,6 +26,7 @@ import com.google.common.collect.PeekingIterator;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
+import org.stringtemplate.v4.compiler.STParser.ifstat_return;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.restrictions.Restriction;
 import org.apache.cassandra.db.*;
@@ -459,7 +460,22 @@ public class ViewUpdateGenerator
                                            .getIndexRestrictions()
                                            .getRestrictions())
         {
+            if (view.getDefinition()
+                    .baseTableMetadata()
+                    .getColumn(restriction.getFirstColumn().name).kind.isPrimaryKeyKind())
+            {
+                // skip base primary key filtered conditions
+                continue;
+            }
             ColumnMetadata filteredColumn = restriction.getFirstColumn();
+            if (restriction.getColumnDefs().size() > 1)
+            {
+                continue;// FIXME don't support multi-column restriction
+            }
+            if (filteredColumn.isComplex())
+            {
+                continue;// FIXME don't support complex column
+            }
             Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(filteredColumn);
             Cell after = mergedBaseRow.getCell(filteredColumn);
             // if "before" is null, there is nothing to cleanup. because view data should not be generated in the first

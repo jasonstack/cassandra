@@ -684,4 +684,18 @@ public class ViewSchemaTest extends CQLTester
             Assert.assertEquals("Cannot use DROP TABLE on Materialized View", e.getMessage());
         }
     }
+
+    @Test
+    public void testCreateAndDropFilteredColumnInBaseWithMV() throws Throwable
+    {
+        // single column relation / multi-column relation / token relation
+        createTable("create table %s (p int, c1 int, c2 int, v1 int, v2 int, primary key(p, c1, c2))");
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        createView("mv",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT p, c1, c2 FROM %%s WHERE v1 = 1 AND token(p) > token(1) AND (c1, c2)>(1,2) PRIMARY KEY (p, c1,c2);");
+
+        // execute("ALTER TABLE %s DROP v1");
+        assertInvalidMessage("Cannot drop column v1, depended on by materialized views", "ALTER TABLE %s DROP v1");
+    }
 }
