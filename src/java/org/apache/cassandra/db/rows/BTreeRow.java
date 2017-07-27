@@ -29,12 +29,14 @@ import com.google.common.collect.Iterators;
 
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.ViewMetadata;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.schema.DroppedColumn;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.BTreeSearchIterator;
@@ -283,16 +285,24 @@ public class BTreeRow extends AbstractRow
     public Row filter(ColumnFilter filter, DeletionTime activeDeletion, boolean setActiveDeletionToRow, TableMetadata metadata)
     {
         Map<ByteBuffer, DroppedColumn> droppedColumns = metadata.droppedColumns;
+        Map<ByteBuffer, DroppedColumn> baseDroppedColumns = Collections.emptyMap();
+        if (metadata.isView())
+        {
+            // get base dropped column to remove out dated virCells
+            ViewMetadata current = Schema.instance.getView(metadata.keyspace, metadata.name);
+            baseDroppedColumns = current.baseTableMetadata().droppedColumns;
+        }
 
         boolean mayFilterColumns = !filter.fetchesAllColumns(isStatic());
         boolean mayHaveShadowed = activeDeletion.supersedes(deletion);
 
-        if (!mayFilterColumns && !mayHaveShadowed && droppedColumns.isEmpty())
+        if (!mayFilterColumns && !mayHaveShadowed && droppedColumns.isEmpty() && baseDroppedColumns.isEmpty())
             return this;
 
 
         LivenessInfo newInfo = primaryKeyLivenessInfo;
         DeletionTime newDeletion = deletion;
+        VirtualCells virCells = virtualCells.filterDroppedColumns(baseDroppedColumns);
         if (mayHaveShadowed)
         {
             if (activeDeletion.deletes(newInfo.timestamp()))
@@ -306,7 +316,7 @@ public class BTreeRow extends AbstractRow
         Predicate<ColumnMetadata> inclusionTester = columns.inOrderInclusionTester();
         Predicate<ColumnMetadata> queriedByUserTester = filter.queriedColumns().columns(isStatic()).inOrderInclusionTester();
         final LivenessInfo rowLiveness = newInfo;
-        return transformAndFilter(newInfo, newDeletion, virtualCells, (cd) -> {
+        return transformAndFilter(newInfo, newDeletion, virCells, (cd) -> {
 
             ColumnMetadata column = cd.column();
             if (!inclusionTester.test(column))

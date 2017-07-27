@@ -29,6 +29,7 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.stringtemplate.v4.compiler.STParser.ifstat_return;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.restrictions.Restriction;
+import org.apache.cassandra.cql3.restrictions.Restrictions;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.rows.*;
@@ -455,45 +456,47 @@ public class ViewUpdateGenerator
                                                    isViewDeletion ? nowInSec : data.localDeletionTime());
             map.put(data.column().name.toString(), columnInfo);
         }
-        for (Restriction restriction : view.getSelectStatement()
+        for (Restrictions restrictions : view.getSelectStatement()
                                            .getRestrictions()
                                            .getIndexRestrictions()
                                            .getRestrictions())
         {
             if (view.getDefinition()
                     .baseTableMetadata()
-                    .getColumn(restriction.getFirstColumn().name).kind.isPrimaryKeyKind())
+                    .getColumn(restrictions.getFirstColumn().name).kind.isPrimaryKeyKind())
             {
                 // skip base primary key filtered conditions
                 continue;
             }
-            ColumnMetadata filteredColumn = restriction.getFirstColumn();
-            if (restriction.getColumnDefs().size() > 1)
+            for (ColumnMetadata column : restrictions.getColumnDefs())
             {
-                continue;// FIXME don't support multi-column restriction
+                if (column.isComplex())
+                {
+                    continue;// FIXME don't support complex column
+                }
+                Iterator<Restriction> itr = restrictions.getRestrictions(column).iterator();
+                Restriction restriction = itr.next();
+                assert !itr.hasNext();
+                Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(column);
+                Cell after = mergedBaseRow.getCell(column);
+                // if "before" is null, there is nothing to cleanup. because view data should not be generated in the
+                // first place
+                if (isViewDeletion && (before == null || after == null))
+                    continue;
+                // should not insert data to view
+                if (!isViewDeletion && after == null)
+                    continue;
+                ColumnInfo columnInfo = null;
+                // cell is live and no filter condition violation won't result in view row deletion
+                if (isViewDeletion
+                        && (after.isLive(nowInSec) && satisfyViewFilterCondition(mergedBaseRow, restriction)))
+                    continue;
+                Cell data = isViewDeletion ? before : after;
+                columnInfo = new ColumnInfo(data.timestamp(),
+                                            data.ttl(),
+                                            isViewDeletion ? nowInSec : data.localDeletionTime());
+                map.put(column.name.toString(), columnInfo);
             }
-            if (filteredColumn.isComplex())
-            {
-                continue;// FIXME don't support complex column
-            }
-            Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(filteredColumn);
-            Cell after = mergedBaseRow.getCell(filteredColumn);
-            // if "before" is null, there is nothing to cleanup. because view data should not be generated in the first
-            // place
-            if (isViewDeletion && (before == null || after == null))
-                continue;
-            // should not insert data to view
-            if (!isViewDeletion && after == null)
-                continue;
-            ColumnInfo columnInfo = null;
-            // cell is live and no filter condition violation won't result in view row deletion
-            if (isViewDeletion && (after.isLive(nowInSec) && satisfyViewFilterCondition(mergedBaseRow, restriction)))
-                continue;
-            Cell data = isViewDeletion ? before : after;
-            columnInfo = new ColumnInfo(data.timestamp(),
-                                        data.ttl(),
-                                        isViewDeletion ? nowInSec : data.localDeletionTime());
-            map.put(filteredColumn.name.toString(), columnInfo);
         }
         return map;
     }

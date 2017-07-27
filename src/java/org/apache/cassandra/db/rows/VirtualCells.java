@@ -16,6 +16,10 @@ import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
+import org.apache.cassandra.schema.DroppedColumn;
+import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.ViewMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 /**
@@ -288,5 +292,25 @@ public class VirtualCells
                 max = max == null ? info : max.merge(info); // greatest dead column
         }
         return max;
+    }
+
+
+    public VirtualCells filterDroppedColumns(Map<ByteBuffer, DroppedColumn> baseDroppedColumns)
+    {
+        if (baseDroppedColumns.isEmpty() || unselected().isEmpty())
+            return this;
+        // only unselected columns can be dropped in base
+        Map<String, ColumnInfo> filteredUnselected = new HashMap<>();
+        for (Map.Entry<String, ColumnInfo> entry : unselected().entrySet())
+        {
+            ByteBuffer name = ByteBufferUtil.bytes(entry.getKey());
+            DroppedColumn dropped = baseDroppedColumns.get(name);
+            if (dropped != null && entry.getValue().timestamp() <= dropped.droppedTime)
+                continue;
+            filteredUnselected.put(entry.getKey(), entry.getValue());
+        }
+        if (filteredUnselected.size() == unselected().size())
+            return this;// not filtered
+        return new VirtualCells(keyOrConditions(), filteredUnselected);
     }
 }
