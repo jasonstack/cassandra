@@ -138,6 +138,23 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
             cell.digest(digest);
     }
 
+    /**
+     * If the complex column contains live element
+     * 
+     * @param nowInSec
+     * @return
+     */
+    public boolean isLive(int nowInSec)
+    {
+        long timestamp = complexDeletion.markedForDeleteAt();
+        for (Cell cell : this)
+        {
+            if (cell.isLive(nowInSec))
+                timestamp = Math.max(timestamp, cell.timestamp());
+        }
+        return timestamp > complexDeletion.markedForDeleteAt();
+    }
+
     public ComplexColumnData markCounterLocalToBeCleared()
     {
         return transformAndFilter(complexDeletion, Cell::markCounterLocalToBeCleared);

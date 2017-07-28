@@ -269,12 +269,13 @@ public class UnfilteredSerializer
     }
 
     private VirtualCells deserializeRowVirtualCells(SerializationHeader header,
+                                                    SerializationHelper helper,
                                                     DataInputPlus in,
                                                     int extendedFlags) throws IOException
     {
         if ((extendedFlags & HAS_ROW_VIRTUAL_CELLS) != 0)
         {
-            return VirtualCells.serializer.deserialize(in, header);
+            return VirtualCells.serializer.deserialize(in, header, helper);
         }
         return VirtualCells.EMPTY;
     }
@@ -599,7 +600,7 @@ public class UnfilteredSerializer
                     Clustering clustering = Clustering.serializer.deserialize(in, helper.version, header.clusteringTypes());
                     long nextPosition = in.readUnsignedVInt() + in.getFilePointer();
                     in.readUnsignedVInt(); // skip previous unfiltered size
-                    VirtualCells virtualCells = deserializeRowVirtualCells(header, in, extendedFlags);
+                    VirtualCells virtualCells = deserializeRowVirtualCells(header, helper, in, extendedFlags);
                     deserializeRowLiveness(header, in, flags, extendedFlags);
                     DeletionTime deletion = deserializeRowDeletion(header, in, flags, extendedFlags);
                     in.seek(nextPosition);
@@ -661,7 +662,7 @@ public class UnfilteredSerializer
                 in.readUnsignedVInt(); // Skip row size
                 in.readUnsignedVInt(); // previous unfiltered size
             }
-            VirtualCells virtualCells = deserializeRowVirtualCells(header, in, extendedFlags);
+            VirtualCells virtualCells = deserializeRowVirtualCells(header, helper, in, extendedFlags);
             builder.addVirtualCells(virtualCells);
             LivenessInfo rowLiveness = deserializeRowLiveness(header, in, flags, extendedFlags);
             builder.addPrimaryKeyLivenessInfo(rowLiveness);

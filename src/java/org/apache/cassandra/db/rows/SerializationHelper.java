@@ -26,6 +26,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.schema.DroppedColumn;
+import org.apache.cassandra.schema.Schema;
 
 public class SerializationHelper
 {
@@ -52,6 +53,7 @@ public class SerializationHelper
     private ColumnFilter.Tester tester;
 
     private final Map<ByteBuffer, DroppedColumn> droppedColumns;
+    private final Map<ByteBuffer, DroppedColumn> baseDroppedColumns;// used when metadata is view,
     private DroppedColumn currentDroppedComplex;
 
 
@@ -61,6 +63,9 @@ public class SerializationHelper
         this.version = version;
         this.columnsToFetch = columnsToFetch;
         this.droppedColumns = metadata.droppedColumns;
+        this.baseDroppedColumns = metadata.isView()
+                ? Schema.instance.getView(metadata.keyspace, metadata.name).baseTableMetadata().droppedColumns
+                : Collections.emptyMap();
     }
 
     public SerializationHelper(TableMetadata metadata, int version, Flag flag)
@@ -128,6 +133,14 @@ public class SerializationHelper
     {
         DroppedColumn dropped = isComplex ? currentDroppedComplex : droppedColumns.get(cell.column().name.bytes);
         return dropped != null && cell.timestamp() <= dropped.droppedTime;
+    }
+    
+    /**
+     *  if table is view, return dropped columns in base; otherwise, empty
+     */
+    public Map<ByteBuffer, DroppedColumn> getBaseDroppedColumns()
+    { 
+        return baseDroppedColumns;
     }
 
     public boolean isDroppedComplexDeletion(DeletionTime complexDeletion)

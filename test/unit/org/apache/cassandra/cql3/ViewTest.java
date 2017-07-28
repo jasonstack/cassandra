@@ -75,43 +75,10 @@ public class ViewTest extends CQLTester
             executeNet(protocolVersion, "DROP MATERIALIZED VIEW " + viewName);
     }
 
-    @Test
-    public void testPartialUpdate() throws Throwable
-    {
-        // CASSANDRA-13409: partial update
-        boolean flush = true;
-        execute("USE " + keyspace());
-        executeNet(protocolVersion, "USE " + keyspace());
-        createTable("CREATE TABLE %s (k int, c int, a int, b int, PRIMARY KEY (k, c))");
-        createView("mv",
-                   "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE k IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c, k)");
-        Keyspace ks = Keyspace.open(keyspace());
-        ks.getColumnFamilyStore("mv").disableAutoCompaction();
-
-        updateView("INSERT INTO %s (k,c,a,b) VALUES(1,1,1,1) USING TIMESTAMP 0");
-        assertRows(execute("SELECT * from mv"), row(1, 1, 1, 1));
-        updateView("UPDATE %s USING TIMESTAMP 2 SET b=2 WHERE k=1 AND c=1");
-        assertRows(execute("SELECT * from mv"), row(1, 1, 1, 2));
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-        assertRows(execute("SELECT * from mv"), row(1, 1, 1, 2));
-        updateView("UPDATE %s USING TIMESTAMP 2 SET a=2 WHERE k=1 AND c=1");
-        assertRows(execute("SELECT * from mv"), row(1, 1, 2, 2));
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-        assertRows(execute("SELECT * from mv"), row(1, 1, 2, 2));
-        updateView("UPDATE %s USING TIMESTAMP 3 SET b=3 WHERE k=1 AND c=1");
-        assertRows(execute("SELECT * from mv"), row(1, 1, 2, 3));
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-        assertRows(execute("SELECT * from %s"), row(1, 1, 2, 3));
-        assertRows(execute("SELECT * from mv"), row(1, 1, 2, 3));
-    }
 
     @Test
     public void testPartialDelete() throws Throwable
     {
-        // CASSANDRA-13409: partial deletion, cell tombstone should be commutative
         boolean flush = true;
         execute("USE " + keyspace());
         executeNet(protocolVersion, "USE " + keyspace());
@@ -330,78 +297,68 @@ public class ViewTest extends CQLTester
         updateView("ALTER TABLE %s DROP v2");
         assertRowsIgnoringOrder(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
         assertRowsIgnoringOrder(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+        assertRowsIgnoringOrder(execute("SELECT * from %s"));
+        assertRowsIgnoringOrder(execute("SELECT * from mv"));
     }
 
-    // FIXME for now, don't support complex column in unselected columns
-    @Ignore
     @Test
-    public void testUpdateColumnNotInViewComplexColumn() throws Throwable
+    public void testPartialUpdateWithUnselectedCollectionsWithFlush() throws Throwable
     {
-        testUpdateColumnNotInViewComplexColumn(true);
-        testUpdateColumnNotInViewComplexColumn(false);
+        testPartialUpdateWithUnselectedCollections(true); 
     }
 
-
-    private void testUpdateColumnNotInViewComplexColumn(boolean flush) throws Throwable
+    @Test
+    public void testPartialUpdateWithUnselectedCollectionsWithoutFlush() throws Throwable
     {
-        createTable("create table %s (p int, c int, v1 list<int>, v2 set<int>, v3 map<int,int>, primary key(p, c))");
+        testPartialUpdateWithUnselectedCollections(false);
+    }
 
+    public void testPartialUpdateWithUnselectedCollections(boolean flush) throws Throwable
+    {
         execute("USE " + keyspace());
         executeNet(protocolVersion, "USE " + keyspace());
-        Keyspace ks = Keyspace.open(keyspace());
-
+        createTable("CREATE TABLE %s (k int, c int, a int, b int, l list<int>, s set<int>, m map<int,int>, PRIMARY KEY (k, c))");
         createView("mv",
-                   "CREATE MATERIALIZED VIEW %s AS SELECT p, c FROM %%s WHERE p IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c, p);");
+                   "CREATE MATERIALIZED VIEW %s AS SELECT a, b FROM %%s WHERE k IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c, k)");
+        Keyspace ks = Keyspace.open(keyspace());
         ks.getColumnFamilyStore("mv").disableAutoCompaction();
 
-        updateView("UPDATE %s USING TIMESTAMP 0 SET v1 = v1 + [1] WHERE p = 0 AND c = 0");
-
+        updateView("UPDATE %s SET l=l+[1,2,3] WHERE k = 1 AND c = 1");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT * from mv"), row(1, 1, null, null));
 
-        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0),
-                                row(0, 0, list(1), null, null));
-        assertRowsIgnoringOrder(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
-
-        updateView("UPDATE %s USING TIMESTAMP 1 SET v1 = v1 - [1] WHERE p = 0 AND c = 0");
-
+        updateView("UPDATE %s SET l=l-[1,2] WHERE k = 1 AND c = 1");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT * from mv"), row(1, 1, null, null));
 
-        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
-        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
-
-        updateView("UPDATE %s USING TIMESTAMP 1 SET v1 = v1 + [1] WHERE p = 0 AND c = 0");
-
+        updateView("UPDATE %s SET b=3 WHERE k=1 AND c=1");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
+        assertRows(execute("SELECT * from mv"), row(1, 1, null, 3));
 
-        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
-        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+        updateView("UPDATE %s SET b=null, l=l-[3], s=s-{3} WHERE k = 1 AND c = 1");
+        if (flush)
+        {
+            FBUtilities.waitOnFutures(ks.flush());
+            ks.getColumnFamilyStore("mv").forceMajorCompaction();
+        }
+        assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s"));
+        assertRowsIgnoringOrder(execute("SELECT * from mv"));
 
-        updateView("UPDATE %s USING TIMESTAMP 2 SET v2 = v2 + {1} WHERE p = 0 AND c = 0");
-
+        updateView("UPDATE %s SET m=m+{3:3}, l=l-[1], s=s-{2} WHERE k = 1 AND c = 1");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s"), row(1, 1, null, null));
+        assertRowsIgnoringOrder(execute("SELECT * from mv"), row(1, 1, null, null));
 
-        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, null, set(1), null));
-        assertRowsIgnoringOrder(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
-
-        updateView("DELETE v1 FROM %s USING TIMESTAMP 3 WHERE p = 0 AND c = 0");
-
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-
-        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, null, set(1), null));
-        assertRowsIgnoringOrder(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
-
-        updateView("DELETE v2 FROM %s USING TIMESTAMP 4 WHERE p = 0 AND c = 0");
-
-        if (flush)
-            FBUtilities.waitOnFutures(ks.flush());
-
-        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
-        assertEmpty(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+        executeNet(protocolVersion, "ALTER TABLE %s DROP m");
+        ks.getColumnFamilyStore("mv").forceMajorCompaction();
+        assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s WHERE k = 1 AND c = 1"));
+        assertRowsIgnoringOrder(execute("SELECT * from mv WHERE k = 1 AND c = 1"));
+        assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s"));
+        assertRowsIgnoringOrder(execute("SELECT * from mv"));
     }
 
     @Test

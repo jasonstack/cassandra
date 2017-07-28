@@ -26,14 +26,12 @@ import com.google.common.collect.PeekingIterator;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
-import org.stringtemplate.v4.compiler.STParser.ifstat_return;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.restrictions.Restriction;
 import org.apache.cassandra.cql3.restrictions.Restrictions;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.rows.*;
-import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CompositeType;
@@ -242,7 +240,7 @@ public class ViewUpdateGenerator
         startNewUpdate(baseRow);
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow));
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
-        currentViewEntryBuilder.addVirtualCells(computerVirtualCells(null, baseRow, false));
+        currentViewEntryBuilder.addVirtualCells(computeVirtualCells(null, baseRow, false));
 
         for (ColumnData data : baseRow)
         {
@@ -289,8 +287,20 @@ public class ViewUpdateGenerator
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow));
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
 
-        currentViewEntryBuilder.addVirtualCells(computerVirtualCells(existingBaseRow, mergedBaseRow, false));
+        currentViewEntryBuilder.addVirtualCells(computerVirtualCellsForUpdate(existingBaseRow, mergedBaseRow));
 
+        addCellThatDiffers(existingBaseRow, mergedBaseRow);
+
+        submitUpdate();
+    }
+
+    private void addCellThatDiffers(Row existingBaseRow, Row mergedBaseRow)
+    {
+        addCellThatDiffers(existingBaseRow, mergedBaseRow, false);
+    }
+
+    private void addCellThatDiffers(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletiom)
+    {
         // We only add to the view update the cells from mergedBaseRow that differs from
         // existingBaseRow. For that and for speed we can just cell pointer equality: if the update
         // hasn't touched a cell, we know it will be the same object in existingBaseRow and
@@ -346,6 +356,8 @@ public class ViewUpdateGenerator
                 PeekingIterator<Cell> existingCells = Iterators.peekingIterator(existingComplexData.iterator());
                 for (Cell mergedCell : mergedComplexData)
                 {
+                    if (isViewDeletiom && isLive(mergedCell))
+                        continue;
                     Cell existingCell = null;
                     // Find if there is corresponding cell in the existing row
                     while (existingCells.hasNext())
@@ -368,12 +380,13 @@ public class ViewUpdateGenerator
             }
             else
             {
+                if (isViewDeletiom && isLive((Cell) mergedData))
+                    continue;
                 // Note that we've already eliminated the case where merged == existing
                 addCell(viewColumn, (Cell)mergedData);
             }
         }
 
-        submitUpdate();
     }
 
     /**
@@ -394,7 +407,8 @@ public class ViewUpdateGenerator
     {
         startNewUpdate(existingBaseRow);
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
-        currentViewEntryBuilder.addVirtualCells(computerVirtualCells(existingBaseRow, mergedBaseRow, true));
+        currentViewEntryBuilder.addVirtualCells(computeVirtualCells(existingBaseRow, mergedBaseRow, true));
+        addCellThatDiffers(existingBaseRow, mergedBaseRow, true);
         submitUpdate();
     }
 
@@ -404,7 +418,44 @@ public class ViewUpdateGenerator
      * @param isViewDeletion if it's CreateEntry/UpdateExisting in view, false; otherwise true
      * @return
      */
-    private VirtualCells computerVirtualCells(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
+    private VirtualCells computerVirtualCellsForUpdate(Row existingBaseRow, Row mergedBaseRow)
+    {
+        // for isViewDeletion should be checking if there should be view row
+        boolean isViewDeletion = !isViewRowAlive(mergedBaseRow);
+        return computeVirtualCells(existingBaseRow, mergedBaseRow, isViewDeletion);
+    }
+
+    // TODO refactor
+    private boolean isViewRowAlive(Row mergedBaseRow)
+    {
+        if (mergedBaseRow == null)
+            return false;
+        if (view.baseNonPKColumnsInViewPK.isEmpty())
+        {
+            return mergedBaseRow.hasLiveData(nowInSec);
+        }
+
+        for (ColumnMetadata baseColumn : view.baseNonPKColumnsInViewPK)
+        {
+            if (baseColumn.isComplex() && !isLive(mergedBaseRow.getComplexColumnData(baseColumn)))
+                return false;
+            if (baseColumn.isSimple() && !isLive(mergedBaseRow.getCell(baseColumn)))
+                return false;
+        }
+        for (Restrictions restrictions : view.getSelectStatement()
+                                             .getRestrictions()
+                                             .getIndexRestrictions()
+                                             .getRestrictions())
+        {
+            if (isOnPrimaryKey(view, restrictions)) 
+                continue;
+            if (!satisfyViewFilterCondition(mergedBaseRow, restrictions))
+                return false;
+        }
+        return true;
+    }
+
+    private VirtualCells computeVirtualCells(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
     {
         Map<String, ColumnInfo> keyOrConditions = extractKeyOrConditions(existingBaseRow,
                                                                          mergedBaseRow,
@@ -461,21 +512,26 @@ public class ViewUpdateGenerator
                                            .getIndexRestrictions()
                                            .getRestrictions())
         {
-            if (view.getDefinition()
-                    .baseTableMetadata()
-                    .getColumn(restrictions.getFirstColumn().name).kind.isPrimaryKeyKind())
+            if (isOnPrimaryKey(view, restrictions))
             {
                 // skip base primary key filtered conditions
                 continue;
             }
             for (ColumnMetadata column : restrictions.getColumnDefs())
             {
-                if (column.isComplex())
-                {
-                    continue;// FIXME don't support complex column
-                }
                 Iterator<Restriction> itr = restrictions.getRestrictions(column).iterator();
                 Restriction restriction = itr.next();
+                if (column.isComplex())
+                {
+                    ColumnInfo info = computeFilterConditionOnComplexColumn(existingBaseRow,
+                                                                            mergedBaseRow,
+                                                                            column,
+                                                                            restriction,
+                                                                            isViewDeletion);
+                    if (info != null)
+                        map.put(column.name.toString(), info);
+                    continue;
+                }
                 assert !itr.hasNext();
                 Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(column);
                 Cell after = mergedBaseRow.getCell(column);
@@ -501,6 +557,41 @@ public class ViewUpdateGenerator
         return map;
     }
 
+    private ColumnInfo computeFilterConditionOnComplexColumn(Row existingBaseRow,
+                                                             Row mergedBaseRow,
+                                                             ColumnMetadata column,
+                                                             Restriction restriction,
+                                                             boolean isViewDeletion)
+    {
+        ComplexColumnData before = existingBaseRow == null ? null : existingBaseRow.getComplexColumnData(column);
+        ComplexColumnData after = mergedBaseRow == null ? null : mergedBaseRow.getComplexColumnData(column);
+        // if "before" is null, there is nothing to cleanup. because view data should not be generated in the first
+        // place
+        if (isViewDeletion && (before == null || after == null))
+            return null;
+        // should not insert data to view
+        if (!isViewDeletion && after == null)
+            return null;
+        // cell is live and no filter condition violation won't result in view row deletion
+        if (isViewDeletion
+                && (after.isLive(nowInSec) && satisfyViewFilterCondition(mergedBaseRow, restriction)))
+            return null;
+        ComplexColumnData data = isViewDeletion ? before : after;
+        // FIXME for simplicity, don't support TTL on non-frozen collection.
+        // for collection type, its timestamp is generated on server side, new element or modification is always having
+        // bigger timestamp
+        return new ColumnInfo(data.maxTimestamp(),
+                              0,
+                              isViewDeletion ? nowInSec : LivenessInfo.NO_EXPIRATION_TIME);
+    }
+
+    private static boolean isOnPrimaryKey(View view, Restrictions restrictions)
+    {
+        return view.getDefinition()
+                   .baseTableMetadata()
+                   .getColumn(restrictions.getFirstColumn().name).kind.isPrimaryKeyKind();
+    }
+
     /**
      * check if given filter condition failed.
      * 
@@ -517,94 +608,75 @@ public class ViewUpdateGenerator
         return filter.isSatisfiedBy(baseMetadata, baseDecoratedKey, mergedBaseRow, nowInSec);
     }
 
-    // private ColumnInfo computeColumnInfoForComplexColumInsertion(ComplexColumnData complexColumn)
-    // {
-    // if (complexColumn == null)
-    // return null;
-    // DeletionTime deletionTime = complexColumn.complexDeletion();
-    // Iterator<Cell> cells = complexColumn.iterator();
-    // ColumnInfo merged = null;
-    // while (cells.hasNext())
-    // {
-    // Cell element = cells.next();
-    // if (element.isLive(nowInSec) && element.timestamp() > deletionTime.markedForDeleteAt())
-    // {
-    // ColumnInfo next = new ColumnInfo(element.timestamp(), element.ttl(), element.localDeletionTime());
-    // if (merged == null)
-    // {
-    // merged = next;
-    // }
-    // }
-    // }
-    // return merged;
-    // }
-    // private ColumnInfo computeColumnInfoForComplexColum(ComplexColumnData before,
-    // ComplexColumnData after,
-    // boolean isViewDeletion)
-    // {
-    // ColumnInfo info = null;
-    // if (isViewDeletion)
-    // {
-    // if (isLive(before) && !isLive(after))
-    // {
-    // // FIXME need to use after
-    // computeColumnInfoForComplexColumInsertion(after);
-    // info = new ColumnInfo(getComplexColumnMaxLiveTimestamp(before), 0, nowInSec);
-    // }
-    // }
-    // else
-    // {
-    // if (isLive(after))
-    // {
-    // // FIXME, don't support ttl on collection elements yet
-    // info = new ColumnInfo(getComplexColumnMaxLiveTimestamp(after),
-    // 0,
-    // DeletionTime.LIVE.localDeletionTime());
-    // }
-    // }
-    // return info;
-    // }
+    private boolean isLive(ComplexColumnData column)
+    {
+        return column != null && column.isLive(nowInSec);
+    }
 
+    private ColumnInfo extractUnselectedComplexColumn(Row existingBaseRow,
+                                                                   Row mergedBaseRow,
+                                                                   ColumnMetadata column,
+                                                                   boolean isViewDeletion)
+    {
+        ComplexColumnData before = existingBaseRow == null ? null : existingBaseRow.getComplexColumnData(column);
+        ComplexColumnData after = mergedBaseRow == null ? null : mergedBaseRow.getComplexColumnData(column);
+        ComplexColumnData data = null;
+        if (isViewDeletion && isLive(before) && !isLive(after))
+            data = before;
+        if (isViewDeletion && after != null && after.isLive(nowInSec))
+            data = after;
+        if (!isViewDeletion && isLive(after))
+            data = after;
+        if (data == null)
+            return null;
+        // for collection type, its timestamp is generated on server side, new element or modification is always having
+        // bigger timestamp
+        return new ColumnInfo(data.maxTimestamp(),
+                              0,
+                              isViewDeletion ? nowInSec : LivenessInfo.NO_EXPIRATION_TIME);
+    }
+
+    /*
+     * not necessary to generate unselected info if there is keyOrConditions, because those columns must be alive so
+     * that view row exists
+     */
     private Map<String, ColumnInfo> extractUnselected(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
     {
         Map<String, ColumnInfo> map = new HashMap<>();
         for (ColumnMetadata column : view.getDefinition().baseTableMetadata().columns())
         {
-
-            if (!view.getDefinition().includes(column.name) && !view.baseNonPKColumnsInViewPK.contains(column))
+            if (view.getViewColumn(column) != null)
+                continue;
+            if (column.isComplex())
             {
-                if (column.isComplex())
-                {
-                    // FIXME don't support complex column in unselected
-                    // ComplexColumnData before = existingBaseRow == null ? null
-                    // : existingBaseRow.getComplexColumnData(column);
-                    // ComplexColumnData after = mergedBaseRow == null ? null :
-                    // mergedBaseRow.getComplexColumnData(column);
-                    // ColumnInfo info = computeColumnInfoForComplexColum(before, after, isViewDeletion);
-                    // if (info != null)
-                    // map.put(column.name.toString(), info);
-                    continue;
-                }
-                Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(column);
-                Cell after = mergedBaseRow == null ? null : mergedBaseRow.getCell(column); // cannot be complex column
-
-                Cell data = null;
-                if (isViewDeletion && isLive(before) && !isLive(after))
-                    data = before;
-                if (isViewDeletion && after != null && after.isLive(nowInSec))
-                    data = after;
-                if (!isViewDeletion && isLive(after))
-                    data = after;
-                if (data == null)
-                    continue;
-                ColumnInfo columnInfo = new ColumnInfo(data.timestamp(),
-                                                       data.ttl(),
-                                                       isViewDeletion ? nowInSec : data.localDeletionTime());
-                map.put(data.column().name.toString(), columnInfo);
+                ColumnInfo info = extractUnselectedComplexColumn(existingBaseRow,
+                                                                 mergedBaseRow,
+                                                                 column,
+                                                                 isViewDeletion);
+                if (info != null)
+                    map.put(column.name.toString(), info);
+                continue;
             }
+            Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(column);
+            Cell after = mergedBaseRow == null ? null : mergedBaseRow.getCell(column); // cannot be complex column
+
+            Cell data = null;
+            if (isViewDeletion && isLive(before) && !isLive(after))
+                data = before;
+            if (isViewDeletion && after != null && after.isLive(nowInSec))
+                data = after;
+            if (!isViewDeletion && isLive(after))
+                data = after;
+            if (data == null)
+                continue;
+            ColumnInfo columnInfo = new ColumnInfo(data.timestamp(),
+                                                   data.ttl(),
+                                                   isViewDeletion ? nowInSec : data.localDeletionTime());
+            map.put(data.column().name.toString(), columnInfo);
         }
         return map;
     }
+
 
     /**
      * Computes the partition key and clustering for a new view entry, and setup the internal row builder for the new

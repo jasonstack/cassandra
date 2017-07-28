@@ -31,6 +31,7 @@ public class VirtualCells
 
     public static final Serializer serializer = new VirtualCells.Serializer();
 
+    // use bytebuffer instead
     private final Map<String, ColumnInfo> keyOrConditions;
     private final Map<String, ColumnInfo> unselected;
 
@@ -217,12 +218,13 @@ public class VirtualCells
             }
         }
 
-        public VirtualCells deserialize(DataInputPlus in, SerializationHeader header) throws IOException
+        public VirtualCells deserialize(DataInputPlus in, SerializationHeader header, SerializationHelper helper) throws IOException
         {
             Map<String, ColumnInfo> keyOrConditions = deserializeRowVirtualCellsPayload(header, in);
             Map<String, ColumnInfo> unselected = deserializeRowVirtualCellsPayload(header, in);
 
-            return VirtualCells.create(keyOrConditions, unselected);
+            return VirtualCells.create(keyOrConditions, unselected)
+                               .filterDroppedColumns(helper.getBaseDroppedColumns());
         }
 
         private Map<String, ColumnInfo> deserializeRowVirtualCellsPayload(SerializationHeader header,

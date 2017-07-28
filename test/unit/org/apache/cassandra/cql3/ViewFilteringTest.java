@@ -272,7 +272,92 @@ public class ViewFilteringTest extends CQLTester
         dropView("mv_test5");
         dropView("mv_test6");
         dropTable("DROP TABLE %s");
+    }
 
+    @Test
+    public void testMVFilteringWithComplexColumn() throws Throwable
+    {
+        createTable("CREATE TABLE %s (a int, b int, c int, l list<int>, s set<int>, m map<int,int>, PRIMARY KEY (a, b))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+
+        createView("mv_test1",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT a,b,c FROM %%s WHERE a IS NOT NULL AND b IS NOT NULL AND c IS NOT NULL "
+                           + "and l contains (1) AND s contains (1) AND m contains key (1) PRIMARY KEY (a, b, c)");
+        createView("mv_test2",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT a,b FROM %%s WHERE a IS NOT NULL and b IS NOT NULL AND l contains (1) PRIMARY KEY (a, b)");
+        createView("mv_test3",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT a,b FROM %%s WHERE a IS NOT NULL AND b IS NOT NULL AND s contains (1) PRIMARY KEY (a, b)");
+        createView("mv_test4",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT a,b FROM %%s WHERE a IS NOT NULL AND b IS NOT NULL AND m contains key (1) PRIMARY KEY (a, b)");
+
+        waitForView(keyspace(), "mv_test1");
+        waitForView(keyspace(), "mv_test2");
+        waitForView(keyspace(), "mv_test3");
+        waitForView(keyspace(), "mv_test4");
+
+        // not able to drop base column filtered in view
+        assertInvalidMessage("Cannot drop column l, depended on by materialized views", "ALTER TABLE %s DROP l");
+        assertInvalidMessage("Cannot drop column s, depended on by materialized views", "ALTER TABLE %S DROP s");
+        assertInvalidMessage("Cannot drop column m, depended on by materialized views", "ALTER TABLE %s DROP m");
+
+        Keyspace ks = Keyspace.open(keyspace());
+        ks.getColumnFamilyStore("mv_test1").disableAutoCompaction();
+        ks.getColumnFamilyStore("mv_test2").disableAutoCompaction();
+        ks.getColumnFamilyStore("mv_test3").disableAutoCompaction();
+        ks.getColumnFamilyStore("mv_test4").disableAutoCompaction();
+
+        execute("INSERT INTO %s (a, b, c, l, s, m) VALUES (?, ?, ?, ?, ?, ?) ",
+                1,
+                1,
+                1,
+                list(1, 1, 2),
+                set(1, 2),
+                map(1, 1, 2, 2));
+        FBUtilities.waitOnFutures(ks.flush());
+ 
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test2"), row(1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1));
+        
+        
+        execute("UPDATE %s SET l=l-[1] WHERE a = 1 AND b = 1" );
+        FBUtilities.waitOnFutures(ks.flush());
+ 
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test2"));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1));
+
+        execute("UPDATE %s SET s=s-{2}, m=m-{2} WHERE a = 1 AND b = 1");
+        FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT a,b,c FROM %s"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test2"));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"), row(1, 1));
+
+        execute("UPDATE %s SET  m=m-{1} WHERE a = 1 AND b = 1");
+        FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT a,b,c FROM %s"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test2"));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"));
+
+        // filter conditions result not changed
+        execute("UPDATE %s SET  l=l+[2], s=s-{0}, m=m+{3:3} WHERE a = 1 AND b = 1");
+        FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT a,b,c FROM %s"), row(1, 1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test2"));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test3"), row(1, 1));
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test4"));
     }
 
     @Test
