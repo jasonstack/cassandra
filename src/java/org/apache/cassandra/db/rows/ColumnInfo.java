@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.rows;
 
+import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.util.Collections;
 import java.util.HashMap;
@@ -58,22 +59,22 @@ public class ColumnInfo
         return localDeletionTime() > other.localDeletionTime() ? this : other;
     }
 
-    public static boolean anyTombstone(Map<String, ColumnInfo> info)
+    public static boolean anyTombstone(Map<ByteBuffer, ColumnInfo> info)
     {
         return info.values().stream().anyMatch(c -> c.isTombstone());
     }
 
-    public static boolean anyTombstoneOrTTLed(Map<String, ColumnInfo> info, int nowInSec)
+    public static boolean anyTombstoneOrTTLed(Map<ByteBuffer, ColumnInfo> info, int nowInSec)
     {
         return info.values().stream().anyMatch(c -> !c.isLive(nowInSec));
     }
 
-    public static boolean anyNotTombstone(Map<String, ColumnInfo> info)
+    public static boolean anyNotTombstone(Map<ByteBuffer, ColumnInfo> info)
     {
         return info.values().stream().anyMatch(c -> !c.isTombstone());
     }
 
-    public static boolean anyAlive(Map<String, ColumnInfo> info, int nowInSec)
+    public static boolean anyAlive(Map<ByteBuffer, ColumnInfo> info, int nowInSec)
     {
         return info.values().stream().anyMatch(c -> c.isLive(nowInSec));
     }

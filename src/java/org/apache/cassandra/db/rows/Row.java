@@ -18,19 +18,15 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.*;
-import java.security.MessageDigest;
 import java.util.function.Consumer;
 
 import com.google.common.base.Predicate;
-import com.sun.org.apache.bcel.internal.generic.ReturnInstruction;
-
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MergeIterator;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;

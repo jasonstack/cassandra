@@ -19,12 +19,14 @@ package org.apache.cassandra.db.rows;
 
 import static org.junit.Assert.*;
 
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.rows.VirtualCells;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.junit.Test;
 
@@ -79,50 +81,82 @@ public class VirtualCellsTest
     public void testMergeVirtualCells()
     {
         // live keyOrConditions, tombstone unselected
-        VirtualCells vc1 = VirtualCells.create(liveVirtualCells("a", 1L, "b", 2L), liveVirtualCells("c", 1L));
-        VirtualCells vc2 = VirtualCells.create(liveVirtualCells("a", 2L, "b", 1L),
-                                               tombstoneVirtualCellc("c", 2L, 1000));
+        VirtualCells vc1 = VirtualCells.createKeyOrCondition(liveVirtualCells("a", 1L, "b", 2L));
+        VirtualCells vc2 = VirtualCells.createKeyOrCondition(liveVirtualCells("a", 2L, "b", 1L));
+
         VirtualCells merged = vc1.merge(vc2);
         assertFalse(merged.isEmpty());
         assertFalse(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
         assertEquals(liveVirtualCells("a", 2L, "b", 2L), merged.keyOrConditions());
-        assertEquals(tombstoneVirtualCellc("c", 2L, 1000), merged.unselected());
+        assertEquals(Collections.emptyMap(), merged.unselected());
 
         // tombstone keyOrConditions, tombstone unselected
-        vc1 = VirtualCells.create(tombstoneVirtualCellc("a", 1L, 100, "b", 2L, 100), liveVirtualCells("c", 1L));
-        vc2 = VirtualCells.create(liveVirtualCells("a", 1L, "b", 2L),
-                                  tombstoneVirtualCellc("c", 2L, 1000));
+        vc1 = VirtualCells.createKeyOrCondition(tombstoneVirtualCellc("a", 1L, 100, "b", 2L, 100));
+        vc2 = VirtualCells.createKeyOrCondition(liveVirtualCells("a", 1L, "b", 2L));
         merged = vc1.merge(vc2);
         assertFalse(merged.isEmpty());
         assertTrue(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
         assertEquals(tombstoneVirtualCellc("a", 1L, 100, "b", 2L, 100), merged.keyOrConditions());
-        assertEquals(tombstoneVirtualCellc("c", 2L, 1000), merged.unselected());
+        assertEquals(Collections.emptyMap(), merged.unselected());
 
         // tombstone keyOrConditions
-        vc1 = VirtualCells.create(liveVirtualCells("a", 1L), tombstoneVirtualCellc("c", 2L, 1000));
-
-        vc2 = VirtualCells.create(tombstoneVirtualCellc("b", 2L, 100), liveVirtualCells("c", 1L));
+        vc1 = VirtualCells.createKeyOrCondition(liveVirtualCells("a", 1L));
+        vc2 = VirtualCells.createKeyOrCondition(tombstoneVirtualCellc("b", 2L, 100));
 
         merged = vc1.merge(vc2);
         assertFalse(merged.isEmpty());
         assertTrue(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
         assertEquals(tombstoneVirtualCellc("a", 1L, Integer.MAX_VALUE, "b", 2L, 100), merged.keyOrConditions());
+        assertEquals(Collections.emptyMap(), merged.unselected());
+    }
+
+    @Test
+    public void testMergeVirtualCellsUnselected()
+    {
+        // live unselected
+        VirtualCells vc1 = VirtualCells.createUnselected(liveVirtualCells("c", 1L));
+        VirtualCells vc2 = VirtualCells.createUnselected(tombstoneVirtualCellc());
+
+        VirtualCells merged = vc1.merge(vc2);
+        assertFalse(merged.isEmpty());
+        assertFalse(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
+        assertEquals(Collections.emptyMap(), merged.keyOrConditions());
+        assertEquals(liveVirtualCells("c", 1L), merged.unselected());
+
+        // live unselected
+        vc1 = VirtualCells.createUnselected(liveVirtualCells("c", 3L));
+        vc2 = VirtualCells.createUnselected(tombstoneVirtualCellc("c", 2L, 1000));
+        merged = vc1.merge(vc2);
+        assertFalse(merged.isEmpty());
+        assertFalse(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
+        assertEquals(Collections.emptyMap(), merged.keyOrConditions());
+        assertEquals(liveVirtualCells("c", 3L), merged.unselected());
+
+        // tombstone unselected
+        vc1 = VirtualCells.createUnselected(tombstoneVirtualCellc("c", 2L, 1000));
+        vc2 = VirtualCells.createUnselected(liveVirtualCells("c", 1L));
+
+        merged = vc1.merge(vc2);
+        assertFalse(merged.isEmpty());
+        assertFalse(merged.shouldWipeRow(FBUtilities.nowInSeconds()));
+        assertEquals(Collections.emptyMap(), merged.keyOrConditions());
         assertEquals(tombstoneVirtualCellc("c", 2L, 1000), merged.unselected());
     }
 
     /**
      * ColumnName(String)-Timestamp(Long)
      */
-    private Map<String, ColumnInfo> liveVirtualCells(Object... objs)
+    private Map<ByteBuffer, ColumnInfo> liveVirtualCells(Object... objs)
     {
         if (objs == null || objs.length == 0)
-            return Collections.EMPTY_MAP;
+            return Collections.emptyMap();
         assert objs.length % 2 == 0;
 
-        Map<String, ColumnInfo> info = new HashMap<>();
+        Map<ByteBuffer, ColumnInfo> info = new HashMap<>();
         for (int i = 0; i < objs.length; i += 2)
         {
-            info.put((String) objs[i], new ColumnInfo((long) objs[i + 1], 0, Integer.MAX_VALUE));
+            ByteBuffer name = ByteBufferUtil.bytes((String) objs[i]);
+            info.put(name, new ColumnInfo((long) objs[i + 1], 0, Integer.MAX_VALUE));
         }
         return info;
     }
@@ -130,16 +164,17 @@ public class VirtualCellsTest
     /**
      * ColumnName(String)-Timestamp(Long)-LocalDeletionTime(Integer)
      */
-    private Map<String, ColumnInfo> tombstoneVirtualCellc(Object... objs)
+    private Map<ByteBuffer, ColumnInfo> tombstoneVirtualCellc(Object... objs)
     {
         if (objs == null || objs.length == 0)
-            return Collections.EMPTY_MAP;
+            return Collections.emptyMap();
         assert objs.length % 3 == 0;
 
-        Map<String, ColumnInfo> info = new HashMap<>();
+        Map<ByteBuffer, ColumnInfo> info = new HashMap<>();
         for (int i = 0; i < objs.length; i += 3)
         {
-            info.put((String) objs[i], new ColumnInfo((long) objs[i + 1], 0, (int) objs[i + 2]));
+            ByteBuffer name = ByteBufferUtil.bytes((String) objs[i]);
+            info.put(name, new ColumnInfo((long) objs[i + 1], 0, (int) objs[i + 2]));
         }
         return info;
     }

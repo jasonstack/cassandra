@@ -7,19 +7,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
-
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
-import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.DroppedColumn;
-import org.apache.cassandra.schema.Schema;
-import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.schema.ViewMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 /**
@@ -27,40 +19,59 @@ import org.apache.cassandra.utils.ByteBufferUtil;
  */
 public class VirtualCells
 {
-    public static final VirtualCells EMPTY = new VirtualCells(Collections.emptyMap(), Collections.emptyMap());
+    public static final VirtualCells EMPTY = new VirtualCells(Collections.emptyMap(), false);
 
     public static final Serializer serializer = new VirtualCells.Serializer();
 
     // use bytebuffer instead
-    private final Map<String, ColumnInfo> keyOrConditions;
-    private final Map<String, ColumnInfo> unselected;
+    private final Map<ByteBuffer, ColumnInfo> payload;
+    private final boolean isKeyOrFilter; // if true and payload has dead column, wipe entire row; if false and payload
+                                         // has any column alive, view row alive.
 
-    private VirtualCells(Map<String, ColumnInfo> keyOrConditions, Map<String, ColumnInfo> unselected)
+    private VirtualCells(Map<ByteBuffer, ColumnInfo> payload, boolean isKeyOrFilter)
     {
-        this.keyOrConditions = keyOrConditions;
-        this.unselected = unselected;
+        this.payload = payload;
+        this.isKeyOrFilter = isKeyOrFilter;
     }
 
-    public static VirtualCells create(Map<String, ColumnInfo> keyOrConditions, Map<String, ColumnInfo> unselected)
+    private static VirtualCells create(Map<ByteBuffer, ColumnInfo> payload, boolean isKeyOrFilter)
     {
-        if (keyOrConditions.isEmpty() && unselected.isEmpty())
+        if (payload.isEmpty())
             return EMPTY;
-        return new VirtualCells(keyOrConditions, unselected);
+        return new VirtualCells(payload, isKeyOrFilter);
     }
 
+    public static VirtualCells createKeyOrCondition(Map<ByteBuffer, ColumnInfo> keyOrConditions)
+    { 
+        if (keyOrConditions.isEmpty())
+            return EMPTY;
+        return new VirtualCells(keyOrConditions, true);
+    }
+
+    public static VirtualCells createUnselected(Map<ByteBuffer, ColumnInfo> unselected)
+    {
+        if (unselected.isEmpty() )
+            return EMPTY;
+        return new VirtualCells(unselected, false);
+    }
+    
     public boolean isEmpty()
     {
-        return keyOrConditions.isEmpty() && unselected.isEmpty();
+        return payload.isEmpty();
     }
 
-    public Map<String, ColumnInfo> keyOrConditions()
+    public Map<ByteBuffer, ColumnInfo> keyOrConditions()
     {
-        return keyOrConditions;
+        if (!isKeyOrFilter)
+            return Collections.emptyMap();
+        return payload;
     }
 
-    public Map<String, ColumnInfo> unselected()
+    public Map<ByteBuffer, ColumnInfo> unselected()
     {
-        return unselected;
+        if (isKeyOrFilter)
+            return Collections.emptyMap();
+        return payload;
     }
 
     public boolean anyLiveUnselected(int nowInSec)
@@ -71,7 +82,11 @@ public class VirtualCells
     @Override
     public int hashCode()
     {
-        return Objects.hash(keyOrConditions(), unselected());
+        final int prime = 31;
+        int result = 1;
+        result = prime * result + (isKeyOrFilter ? 1231 : 1237);
+        result = prime * result + ((payload == null) ? 0 : payload.hashCode());
+        return result;
     }
 
     @Override
@@ -84,19 +99,14 @@ public class VirtualCells
         if (getClass() != obj.getClass())
             return false;
         VirtualCells other = (VirtualCells) obj;
-        if (keyOrConditions == null)
-        {
-            if (other.keyOrConditions != null)
-                return false;
-        }
-        else if (!keyOrConditions.equals(other.keyOrConditions))
+        if (isKeyOrFilter != other.isKeyOrFilter)
             return false;
-        if (unselected == null)
+        if (payload == null)
         {
-            if (other.unselected != null)
+            if (other.payload != null)
                 return false;
         }
-        else if (!unselected.equals(other.unselected))
+        else if (!payload.equals(other.payload))
             return false;
         return true;
     }
@@ -114,21 +124,21 @@ public class VirtualCells
         if (another.isEmpty())
             return this;
 
-        Map<String, ColumnInfo> mergedKeyOrConditions = merge(keyOrConditions(), another.keyOrConditions());
+        assert isKeyOrFilter == another.isKeyOrFilter;
 
-        Map<String, ColumnInfo> mergedUnselected = merge(unselected(), another.unselected());
+        Map<ByteBuffer, ColumnInfo> mergedPayload = merge(payload, another.payload);
 
-        return VirtualCells.create(mergedKeyOrConditions, mergedUnselected);
+        return VirtualCells.create(mergedPayload, isKeyOrFilter);
     }
 
-    private static Map<String, ColumnInfo> merge(Map<String, ColumnInfo> left,
-                                                                Map<String, ColumnInfo> right)
+    private static Map<ByteBuffer, ColumnInfo> merge(Map<ByteBuffer, ColumnInfo> left,
+                                                     Map<ByteBuffer, ColumnInfo> right)
     {
         if (left.isEmpty())
             return right;
         if (right.isEmpty())
             return left;
-        Map<String, ColumnInfo> mergedKeyOrConditions = new HashMap<>();
+        Map<ByteBuffer, ColumnInfo> mergedKeyOrConditions = new HashMap<>();
         left.entrySet()
             .forEach(e -> mergedKeyOrConditions.merge(e.getKey(), e.getValue(), (c1, c2) -> c1.merge(c2)));
         right.entrySet()
@@ -145,29 +155,29 @@ public class VirtualCells
      */
     public boolean shouldWipeRow(int nowInSeconds)
     {
-        return keyOrConditions().values().stream().anyMatch(c -> !c.isLive(nowInSeconds));
+        return isKeyOrFilter && keyOrConditions().values().stream().anyMatch(c -> !c.isLive(nowInSeconds));
     }
 
     @Override
     public String toString()
     {
-        return "VirtualCells [keyOrConditions=" + keyOrConditions + ", unselected=" + unselected + "]";
+        return "VirtualCells [isKeyOrConditions=" + isKeyOrFilter + ", payLoad=" + payload + "]";
     }
 
     public int dataSize()
     {
         int size = 0;
         size += dataSize(keyOrConditions());
-        size += dataSize(unselected());
+        size += TypeSizes.sizeof(isKeyOrFilter);
         return size;
     }
 
-    private static int dataSize(Map<String, ColumnInfo> payload)
+    private static int dataSize(Map<ByteBuffer, ColumnInfo> payload)
     {
         int size = 0;
-        for (Map.Entry<String, ColumnInfo> entry : payload.entrySet())
+        for (Map.Entry<ByteBuffer, ColumnInfo> entry : payload.entrySet())
         {
-            size += TypeSizes.sizeof(entry.getKey());
+            size += TypeSizes.sizeofWithLength(entry.getKey());
             size += entry.getValue().dataSize();
         }
         return size;
@@ -176,10 +186,9 @@ public class VirtualCells
     public void digest(MessageDigest digest)
     {
         digest(keyOrConditions(), digest);
-        digest(unselected(), digest);
     }
 
-    private void digest(Map<String, ColumnInfo> payload, MessageDigest digest)
+    private void digest(Map<ByteBuffer, ColumnInfo> payload, MessageDigest digest)
     {
         if (payload.isEmpty())
             return;
@@ -199,19 +208,19 @@ public class VirtualCells
                               SerializationHeader header) throws IOException
         {
             assert !virtualCells.isEmpty();
-            serializeRowVirtualCellsPayload(virtualCells.keyOrConditions(), header, out);
-            serializeRowVirtualCellsPayload(virtualCells.unselected(), header, out);
+            out.writeBoolean(virtualCells.isKeyOrFilter);
+            serializeRowVirtualCellsPayload(virtualCells.payload, header, out);
         }
 
-        private void serializeRowVirtualCellsPayload(Map<String, ColumnInfo> payload,
+        private void serializeRowVirtualCellsPayload(Map<ByteBuffer, ColumnInfo> payload,
                                                      SerializationHeader header,
                                                      DataOutputPlus out) throws IOException
         {
             out.writeInt(payload.size());
-            for (Map.Entry<String, ColumnInfo> data : payload.entrySet())
+            for (Map.Entry<ByteBuffer, ColumnInfo> data : payload.entrySet())
             {
                 ColumnInfo info = data.getValue();
-                out.writeUTF(data.getKey());
+                ByteBufferUtil.writeWithLength(data.getKey(), out);
                 header.writeTTL(info.ttl(), out);
                 header.writeTimestamp(info.timestamp(), out);
                 header.writeLocalDeletionTime(info.localDeletionTime(), out);
@@ -220,21 +229,23 @@ public class VirtualCells
 
         public VirtualCells deserialize(DataInputPlus in, SerializationHeader header, SerializationHelper helper) throws IOException
         {
-            Map<String, ColumnInfo> keyOrConditions = deserializeRowVirtualCellsPayload(header, in);
-            Map<String, ColumnInfo> unselected = deserializeRowVirtualCellsPayload(header, in);
+            boolean isFilterOrCondition = in.readBoolean();
+            Map<ByteBuffer, ColumnInfo> keyOrConditions = deserializeRowVirtualCellsPayload(header, in);
 
-            return VirtualCells.create(keyOrConditions, unselected)
+            return VirtualCells.create(keyOrConditions, isFilterOrCondition)
                                .filterDroppedColumns(helper.getBaseDroppedColumns());
         }
 
-        private Map<String, ColumnInfo> deserializeRowVirtualCellsPayload(SerializationHeader header,
+        private Map<ByteBuffer, ColumnInfo> deserializeRowVirtualCellsPayload(SerializationHeader header,
                                                                           DataInputPlus in) throws IOException
         {
-            Map<String, ColumnInfo> payload = new HashMap<>();
             int size = in.readInt();
+            if (size == 0)
+                return Collections.emptyMap();
+            Map<ByteBuffer, ColumnInfo> payload = new HashMap<>();
             for (int i = 0; i < size; i++)
             {
-                String key = in.readUTF();
+                ByteBuffer key = ByteBufferUtil.readWithLength(in);
                 int ttl = header.readTTL(in);
                 long timestamp = header.readTimestamp(in);
                 int localDeletionTime = header.readLocalDeletionTime(in);
@@ -248,22 +259,21 @@ public class VirtualCells
             long size = 0;
             if (!virtualCells.isEmpty())
             {
-                Map<String, ColumnInfo> keyOrConditions = virtualCells.keyOrConditions();
-                size += serializeRowVirtualCellsPayloadSize(keyOrConditions, header);
-
-                Map<String, ColumnInfo> unselected = virtualCells.unselected();
-                size += serializeRowVirtualCellsPayloadSize(unselected, header);
+                size += TypeSizes.sizeof(virtualCells.isKeyOrFilter);
+                size += serializeRowVirtualCellsPayloadSize(virtualCells.payload, header);
             }
             return size;
         }
 
-        private long serializeRowVirtualCellsPayloadSize(Map<String, ColumnInfo> payload, SerializationHeader header)
+        private long serializeRowVirtualCellsPayloadSize(Map<ByteBuffer, ColumnInfo> payload,
+                                                         SerializationHeader header)
         {
             long size = 0;
             size += TypeSizes.sizeof(payload.size());
-            for (Map.Entry<String, ColumnInfo> data : payload.entrySet())
+            for (Map.Entry<ByteBuffer, ColumnInfo> data : payload.entrySet())
             {
                 ColumnInfo info = data.getValue();
+                size += TypeSizes.sizeofWithLength(data.getKey());
                 size += header.timestampSerializedSize(info.timestamp());
 
                 size += header.localDeletionTimeSerializedSize(info.localDeletionTime());
@@ -276,7 +286,7 @@ public class VirtualCells
     public ColumnInfo maxUnselectedColumn()
     {
         ColumnInfo max = null;
-        for (Map.Entry<String, ColumnInfo> data : unselected().entrySet())
+        for (Map.Entry<ByteBuffer, ColumnInfo> data : unselected().entrySet())
         {
             ColumnInfo info = data.getValue();
             max = max == null ? info : max.merge(info);
@@ -287,7 +297,7 @@ public class VirtualCells
     public ColumnInfo maxKeyOrConditionsDeadColumn(int nowInSec)
     {
         ColumnInfo max = null;
-        for (Map.Entry<String, ColumnInfo> data : keyOrConditions().entrySet())
+        for (Map.Entry<ByteBuffer, ColumnInfo> data : keyOrConditions().entrySet())
         {
             ColumnInfo info = data.getValue();
             if (!info.isLive(nowInSec))
@@ -302,10 +312,10 @@ public class VirtualCells
         if (baseDroppedColumns.isEmpty() || unselected().isEmpty())
             return this;
         // only unselected columns can be dropped in base
-        Map<String, ColumnInfo> filteredUnselected = new HashMap<>();
-        for (Map.Entry<String, ColumnInfo> entry : unselected().entrySet())
+        Map<ByteBuffer, ColumnInfo> filteredUnselected = new HashMap<>();
+        for (Map.Entry<ByteBuffer, ColumnInfo> entry : unselected().entrySet())
         {
-            ByteBuffer name = ByteBufferUtil.bytes(entry.getKey());
+            ByteBuffer name = entry.getKey();
             DroppedColumn dropped = baseDroppedColumns.get(name);
             if (dropped != null && entry.getValue().timestamp() <= dropped.droppedTime)
                 continue;
@@ -313,6 +323,6 @@ public class VirtualCells
         }
         if (filteredUnselected.size() == unselected().size())
             return this;// not filtered
-        return new VirtualCells(keyOrConditions(), filteredUnselected);
+        return new VirtualCells(filteredUnselected, isKeyOrFilter);
     }
 }

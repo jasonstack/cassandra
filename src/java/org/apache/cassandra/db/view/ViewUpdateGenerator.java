@@ -240,7 +240,7 @@ public class ViewUpdateGenerator
         startNewUpdate(baseRow);
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(baseRow.primaryKeyLivenessInfo());
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
-        currentViewEntryBuilder.addVirtualCells(computeVirtualCells(null, baseRow, false));
+        currentViewEntryBuilder.addVirtualCells(computeVirtualCells(null, baseRow, false)); 
 
         for (ColumnData data : baseRow)
         {
@@ -299,7 +299,10 @@ public class ViewUpdateGenerator
         addCellThatDiffers(existingBaseRow, mergedBaseRow, false);
     }
 
-    private void addCellThatDiffers(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletiom)
+    /*
+     * if it's for view deletion, only tombstone is sent
+     */
+    private void addCellThatDiffers(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
     {
         // We only add to the view update the cells from mergedBaseRow that differs from
         // existingBaseRow. For that and for speed we can just cell pointer equality: if the update
@@ -356,7 +359,7 @@ public class ViewUpdateGenerator
                 PeekingIterator<Cell> existingCells = Iterators.peekingIterator(existingComplexData.iterator());
                 for (Cell mergedCell : mergedComplexData)
                 {
-                    if (isViewDeletiom && isLive(mergedCell))
+                    if (isViewDeletion && isLive(mergedCell))
                         continue;
                     Cell existingCell = null;
                     // Find if there is corresponding cell in the existing row
@@ -380,7 +383,7 @@ public class ViewUpdateGenerator
             }
             else
             {
-                if (isViewDeletiom && isLive((Cell) mergedData))
+                if (isViewDeletion && isLive((Cell) mergedData))
                     continue;
                 // Note that we've already eliminated the case where merged == existing
                 addCell(viewColumn, (Cell)mergedData);
@@ -448,22 +451,43 @@ public class ViewUpdateGenerator
 
     private VirtualCells computeVirtualCells(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
     {
-        Map<String, ColumnInfo> keyOrConditions = extractKeyOrConditions(existingBaseRow,
-                                                                         mergedBaseRow,
-                                                                         isViewDeletion);
-        Map<String, ColumnInfo> unselected = keyOrConditions.isEmpty()
-                ? extractUnselected(existingBaseRow, mergedBaseRow, isViewDeletion)
-                : Collections.emptyMap();
-        return VirtualCells.create(keyOrConditions, unselected);
+        if (hasBaseColumnInViewPkOrFilter())
+        {
+            Map<ByteBuffer, ColumnInfo> keyOrConditions = extractKeyOrConditions(existingBaseRow,
+                                                                             mergedBaseRow,
+                                                                             isViewDeletion);
+            assert !keyOrConditions.isEmpty();
+            return VirtualCells.createKeyOrCondition(keyOrConditions);
+        }
+        Map<ByteBuffer, ColumnInfo> unselected = extractUnselected(existingBaseRow, mergedBaseRow, isViewDeletion);
+        return VirtualCells.createUnselected(unselected);
     }
 
+    /*
+     * has base column used as view pk or filter on base normal column
+     */
+    private boolean hasBaseColumnInViewPkOrFilter()
+    {
+        if(view.baseNonPKColumnsInViewPK.size() > 0)
+            return true;
+        
+        for (Restrictions restrictions : view.getSelectStatement()
+                                             .getRestrictions()
+                                             .getIndexRestrictions()
+                                             .getRestrictions())
+        {
+            if (!isOnPrimaryKey(view, restrictions))
+                return true;
+        }
+        return false;
+    }
     /**
      * @param existingBaseRow could be null
      * @param mergedBaseRow .
      * @param isViewDeletion only required dead cells or TTLed cells
      * @return
      */
-    private Map<String, ColumnInfo> extractKeyOrConditions(Row existingBaseRow,
+    private Map<ByteBuffer, ColumnInfo> extractKeyOrConditions(Row existingBaseRow,
                                                            Row mergedBaseRow,
                                                            boolean isViewDeletion)
     {
@@ -476,7 +500,7 @@ public class ViewUpdateGenerator
         // 2.2 get all base column in view pk. use merged row's data as ColumnInfo
         // 2.2 get all base column in view filter condition. use merged row's data as ColumnInfo
 
-        Map<String, ColumnInfo> map = new HashMap<>();
+        Map<ByteBuffer, ColumnInfo> map = new HashMap<>();
         // we could have more than 1 base column in view priamry key in the future
         for (ColumnMetadata column : view.baseNonPKColumnsInViewPK)
         {
@@ -496,7 +520,7 @@ public class ViewUpdateGenerator
             ColumnInfo columnInfo = new ColumnInfo(data.timestamp(),
                                                    data.ttl(),
                                                    isViewDeletion ? nowInSec : data.localDeletionTime());
-            map.put(data.column().name.toString(), columnInfo);
+            map.put(data.column().name.bytes, columnInfo);
         }
         for (Restrictions restrictions : view.getSelectStatement()
                                            .getRestrictions()
@@ -520,7 +544,7 @@ public class ViewUpdateGenerator
                                                                             restriction,
                                                                             isViewDeletion);
                     if (info != null)
-                        map.put(column.name.toString(), info);
+                        map.put(column.name.bytes, info);
                     continue;
                 }
                 assert !itr.hasNext();
@@ -542,7 +566,7 @@ public class ViewUpdateGenerator
                 columnInfo = new ColumnInfo(data.timestamp(),
                                             data.ttl(),
                                             isViewDeletion ? nowInSec : data.localDeletionTime());
-                map.put(column.name.toString(), columnInfo);
+                map.put(column.name.bytes, columnInfo);
             }
         }
         return map;
@@ -631,12 +655,14 @@ public class ViewUpdateGenerator
      * not necessary to generate unselected info if there is keyOrConditions, because those columns must be alive so
      * that view row exists
      */
-    private Map<String, ColumnInfo> extractUnselected(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
+    private Map<ByteBuffer, ColumnInfo> extractUnselected(Row existingBaseRow,
+                                                          Row mergedBaseRow,
+                                                          boolean isViewDeletion)
     {
         if (view.getDefinition().baseTableMetadata().columns().size() == viewMetadata.columns().size())
             return Collections.emptyMap();
 
-        Map<String, ColumnInfo> map = new HashMap<>();
+        Map<ByteBuffer, ColumnInfo> map = new HashMap<>();
         for (ColumnMetadata column : view.getDefinition().baseTableMetadata().columns())
         {
             if (view.getViewColumn(column) != null)
@@ -648,7 +674,7 @@ public class ViewUpdateGenerator
                                                                  column,
                                                                  isViewDeletion);
                 if (info != null)
-                    map.put(column.name.toString(), info);
+                    map.put(column.name.bytes, info);
                 continue;
             }
             Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(column);
@@ -666,7 +692,7 @@ public class ViewUpdateGenerator
             ColumnInfo columnInfo = new ColumnInfo(data.timestamp(),
                                                    data.ttl(),
                                                    isViewDeletion ? nowInSec : data.localDeletionTime());
-            map.put(data.column().name.toString(), columnInfo);
+            map.put(data.column().name.bytes, columnInfo);
         }
         return map;
     }

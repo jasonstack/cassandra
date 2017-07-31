@@ -36,7 +36,7 @@ public interface DeletionPurger
         return !liveness.isLive(nowInSec) && shouldPurge(liveness.timestamp(), liveness.localExpirationTime());
     }
 
-    public default boolean shouldPurgeKeyOrConditions(VirtualCells virtualCells, int nowInSec)
+    public default boolean shouldPurgeRow(VirtualCells virtualCells, int nowInSec)
     {
         if (!virtualCells.shouldWipeRow(nowInSec))
             return false;
@@ -45,7 +45,7 @@ public interface DeletionPurger
                                                                        // select-reconcile(purged-all)
     }
 
-    public default boolean shouldPurgeUnselected(VirtualCells virtualCells, int nowInSec)
+    public default boolean shouldPurge(VirtualCells virtualCells, int nowInSec)
     {
         if (virtualCells.unselected().isEmpty() || virtualCells.anyLiveUnselected(nowInSec))
             return false;

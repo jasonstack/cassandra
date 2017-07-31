@@ -439,18 +439,14 @@ public class BTreeRow extends AbstractRow
 
         // check to check if unselected columns are dropped..
 
-        // for keyOrConditions, if it's compaction gcBefore or selection after coordinator reconcile, any dead
-        // column will wipe the row.
-        if (purger.shouldPurgeKeyOrConditions(virtualCells, nowInSec))
-        {
+        // if it's compaction gcBefore or selection after coordinator reconcile, any dead
+        // column in base column used in view pk or view' filter will wipe the row.
+        if (purger.shouldPurgeRow(virtualCells, nowInSec))
             return null;
-        }
 
         // for unselected, if it's compaction gcBefore or selection after coordinator reconcile, if no live column,
         // it becomes empty
-        VirtualCells virCells = purger.shouldPurgeUnselected(virtualCells, nowInSec)
-                ? VirtualCells.create(virtualCells.keyOrConditions(), Collections.EMPTY_MAP)
-                :virtualCells; 
+        VirtualCells virCells = purger.shouldPurge(virtualCells, nowInSec) ? VirtualCells.EMPTY : virtualCells;
         return transformAndFilter(newInfo, newDeletion, virCells, (cd) -> cd.purge(purger, nowInSec));
     }
 

@@ -306,15 +306,15 @@ public final class JsonTransformer
     }
 
     private void serializeVirtualCellsPayload(String name,
-                                              Map<String, ColumnInfo> payload) throws JsonGenerationException, IOException
+                                              Map<ByteBuffer, ColumnInfo> payload) throws JsonGenerationException, IOException
     {
         if (payload.isEmpty())
             return;
         json.writeFieldName(name);
         json.writeStartObject();
-        for (Map.Entry<String, ColumnInfo> data : payload.entrySet())
+        for (Map.Entry<ByteBuffer, ColumnInfo> data : payload.entrySet())
         {
-            json.writeFieldName(data.getKey());
+            json.writeFieldName(ByteBufferUtil.string(data.getKey()));
             json.writeStartObject();
             ColumnInfo info = data.getValue();
             if (info.timestamp() != LivenessInfo.NO_TIMESTAMP)
