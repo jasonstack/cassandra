@@ -238,7 +238,7 @@ public class ViewUpdateGenerator
             return;
 
         startNewUpdate(baseRow);
-        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow));
+        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(baseRow.primaryKeyLivenessInfo());
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
         currentViewEntryBuilder.addVirtualCells(computeVirtualCells(null, baseRow, false));
 
@@ -284,7 +284,7 @@ public class ViewUpdateGenerator
         // In theory, it may be the PK liveness and row deletion hasn't been change by the update
         // and we could condition the 2 additions below. In practice though, it's as fast (if not
         // faster) to compute those info than to check if they have changed so we keep it simple.
-        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow));
+        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(mergedBaseRow.primaryKeyLivenessInfo());
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
 
         currentViewEntryBuilder.addVirtualCells(computerVirtualCellsForUpdate(existingBaseRow, mergedBaseRow));
@@ -430,10 +430,6 @@ public class ViewUpdateGenerator
     {
         if (mergedBaseRow == null)
             return false;
-        if (view.baseNonPKColumnsInViewPK.isEmpty())
-        {
-            return mergedBaseRow.hasLiveData(nowInSec);
-        }
 
         for (ColumnMetadata baseColumn : view.baseNonPKColumnsInViewPK)
         {
@@ -442,16 +438,11 @@ public class ViewUpdateGenerator
             if (baseColumn.isSimple() && !isLive(mergedBaseRow.getCell(baseColumn)))
                 return false;
         }
-        for (Restrictions restrictions : view.getSelectStatement()
-                                             .getRestrictions()
-                                             .getIndexRestrictions()
-                                             .getRestrictions())
-        {
-            if (isOnPrimaryKey(view, restrictions)) 
-                continue;
-            if (!satisfyViewFilterCondition(mergedBaseRow, restrictions))
-                return false;
-        }
+        if (!matchesViewFilter(mergedBaseRow))
+            return false;
+
+        if (view.baseNonPKColumnsInViewPK.isEmpty())
+            return mergedBaseRow.hasLiveData(nowInSec);
         return true;
     }
 
@@ -642,6 +633,9 @@ public class ViewUpdateGenerator
      */
     private Map<String, ColumnInfo> extractUnselected(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
     {
+        if (view.getDefinition().baseTableMetadata().columns().size() == viewMetadata.columns().size())
+            return Collections.emptyMap();
+
         Map<String, ColumnInfo> map = new HashMap<>();
         for (ColumnMetadata column : view.getDefinition().baseTableMetadata().columns())
         {
@@ -697,39 +691,6 @@ public class ViewUpdateGenerator
         }
 
         currentViewEntryBuilder.newRow(Clustering.make(clusteringValues));
-    }
-
-    private LivenessInfo computeLivenessInfoForEntry(Row baseRow)
-    {
-        /*
-         * We need to compute both the timestamp and expiration.
-         *
-         * For the timestamp, it makes sense to use the bigger timestamp for all view PK columns.
-         *
-         * This is more complex for the expiration. We want to maintain consistency between the base and the view, so the
-         * entry should only exist as long as the base row exists _and_ has non-null values for all the columns that are part
-         * of the view PK.
-         * Which means we really have 2 cases:
-         *   1) either the columns for the base and view PKs are exactly the same: in that case, the view entry should live
-         *      as long as the base row lives. This means the view entry should only expire once *everything* in the base row
-         *      has expired. Which means the row TTL should be the max of any other TTL.
-         *   2) or there is a column that is not in the base PK but is in the view PK (we can only have one so far, we'll need
-         *      to slightly adapt if we allow more later): in that case, as long as that column lives the entry does too, but
-         *      as soon as it expires (or is deleted for that matter) the entry also should expire. So the expiration for the
-         *      view is the one of that column, irregarding of any other expiration.
-         *      To take an example of that case, if you have:
-         *        CREATE TABLE t (a int, b int, c int, PRIMARY KEY (a, b))
-         *        CREATE MATERIALIZED VIEW mv AS SELECT * FROM t WHERE c IS NOT NULL AND a IS NOT NULL AND b IS NOT NULL PRIMARY KEY (c, a, b)
-         *        INSERT INTO t(a, b) VALUES (0, 0) USING TTL 3;
-         *        UPDATE t SET c = 0 WHERE a = 0 AND b = 0;
-         *      then even after 3 seconds elapsed, the row will still exist (it just won't have a "row marker" anymore) and so
-         *      the MV should still have a corresponding entry.
-         */
-        assert view.baseNonPKColumnsInViewPK.size() <= 1; // This may change, but is currently an enforced limitation
-
-        LivenessInfo baseLiveness = baseRow.primaryKeyLivenessInfo();
-
-        return baseLiveness;
     }
 
     private void addColumnData(ColumnMetadata viewColumn, ColumnData baseTableData)
