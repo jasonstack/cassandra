@@ -7,8 +7,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.DroppedColumn;
@@ -220,7 +223,7 @@ public class VirtualCells
             for (Map.Entry<ByteBuffer, ColumnInfo> data : payload.entrySet())
             {
                 ColumnInfo info = data.getValue();
-                ByteBufferUtil.writeWithLength(data.getKey(), out);
+                BytesType.instance.writeValue(data.getKey(), out);
                 header.writeTTL(info.ttl(), out);
                 header.writeTimestamp(info.timestamp(), out);
                 header.writeLocalDeletionTime(info.localDeletionTime(), out);
@@ -245,7 +248,7 @@ public class VirtualCells
             Map<ByteBuffer, ColumnInfo> payload = new HashMap<>();
             for (int i = 0; i < size; i++)
             {
-                ByteBuffer key = ByteBufferUtil.readWithLength(in);
+                ByteBuffer key = BytesType.instance.readValue(in, DatabaseDescriptor.getMaxValueSize());
                 int ttl = header.readTTL(in);
                 long timestamp = header.readTimestamp(in);
                 int localDeletionTime = header.readLocalDeletionTime(in);
@@ -273,7 +276,7 @@ public class VirtualCells
             for (Map.Entry<ByteBuffer, ColumnInfo> data : payload.entrySet())
             {
                 ColumnInfo info = data.getValue();
-                size += TypeSizes.sizeofWithLength(data.getKey());
+                size += BytesType.instance.writtenLength(data.getKey());
                 size += header.timestampSerializedSize(info.timestamp());
 
                 size += header.localDeletionTimeSerializedSize(info.localDeletionTime());
