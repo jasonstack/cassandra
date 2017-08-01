@@ -428,7 +428,15 @@ public class ViewUpdateGenerator
         return computeVirtualCells(existingBaseRow, mergedBaseRow, isViewDeletion);
     }
 
-    // TODO refactor
+    /**
+     * View row is alive in 2 cases:
+     * <p/>
+     * 1. if there is base column used in view pk or filters in view: all those columns should be alive and match the
+     * filter conditions
+     * <p/>
+     * 2. if there is no base column used in view pk or no filters in view: if base row is alive, then view row is
+     * alive.
+     */
     private boolean isViewRowAlive(Row mergedBaseRow)
     {
         if (mergedBaseRow == null)
