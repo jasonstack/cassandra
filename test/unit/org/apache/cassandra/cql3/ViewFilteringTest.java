@@ -83,7 +83,6 @@ public class ViewFilteringTest extends CQLTester
         views.remove(name);
     }
 
-
     @Test
     public void testViewFilteringWithFlush() throws Throwable
     {
