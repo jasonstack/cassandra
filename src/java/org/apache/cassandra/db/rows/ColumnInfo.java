@@ -142,7 +142,6 @@ public class ColumnInfo
     public void digest(MessageDigest digest)
     {
         FBUtilities.updateWithLong(digest, timestamp());
-        FBUtilities.updateWithLong(digest, ttl());
-        FBUtilities.updateWithLong(digest, localDeletionTime());
+        FBUtilities.updateWithInt(digest, ttl());
     }
 }

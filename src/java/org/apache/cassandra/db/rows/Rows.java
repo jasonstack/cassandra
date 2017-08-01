@@ -139,16 +139,21 @@ public abstract class Rows
         Clustering clustering = merged.clustering();
         LivenessInfo mergedInfo = merged.primaryKeyLivenessInfo().isEmpty() ? null : merged.primaryKeyLivenessInfo();
         DeletionTime mergedDeletion = merged.deletion().isLive() ? null : merged.deletion();
+        VirtualCells mergedVirCells = merged.virtualCells().isEmpty() ? null : merged.virtualCells();
+
         for (int i = 0; i < inputs.length; i++)
         {
             Row input = inputs[i];
             LivenessInfo inputInfo = input == null || input.primaryKeyLivenessInfo().isEmpty() ? null : input.primaryKeyLivenessInfo();
             DeletionTime inputDeletion = input == null || input.deletion().isLive() ? null : input.deletion();
+            VirtualCells inputVirCells = input == null || input.virtualCells().isEmpty() ? null : input.virtualCells();
 
             if (mergedInfo != null || inputInfo != null)
                 diffListener.onPrimaryKeyLivenessInfo(i, clustering, mergedInfo, inputInfo);
             if (mergedDeletion != null || inputDeletion != null)
                 diffListener.onDeletion(i, clustering, mergedDeletion, inputDeletion);
+            if (mergedVirCells != null || inputVirCells != null)
+                diffListener.onVirtualCells(i, clustering, mergedVirCells, inputVirCells);
         }
 
         List<Iterator<ColumnData>> inputIterators = new ArrayList<>(1 + inputs.length);

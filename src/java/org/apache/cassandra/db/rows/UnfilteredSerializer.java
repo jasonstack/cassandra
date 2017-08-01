@@ -18,9 +18,6 @@
 package org.apache.cassandra.db.rows;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-
 import com.google.common.collect.Collections2;
 
 import net.nicoulaj.compilecommand.annotations.Inline;

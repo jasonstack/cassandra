@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SerializationHeader;
@@ -15,7 +16,6 @@ import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.DroppedColumn;
-import org.apache.cassandra.utils.ByteBufferUtil;
 
 /**
  * Wrapper for ColumnInfos. TODO optimize in-memory and storage representation
@@ -85,33 +85,18 @@ public class VirtualCells
     @Override
     public int hashCode()
     {
-        final int prime = 31;
-        int result = 1;
-        result = prime * result + (isKeyOrFilter ? 1231 : 1237);
-        result = prime * result + ((payload == null) ? 0 : payload.hashCode());
-        return result;
+        return Objects.hash(isKeyOrFilter, payload);
     }
 
     @Override
-    public boolean equals(Object obj)
+    public boolean equals(Object other)
     {
-        if (this == obj)
-            return true;
-        if (obj == null)
+        if (!(other instanceof VirtualCells))
             return false;
-        if (getClass() != obj.getClass())
-            return false;
-        VirtualCells other = (VirtualCells) obj;
-        if (isKeyOrFilter != other.isKeyOrFilter)
-            return false;
-        if (payload == null)
-        {
-            if (other.payload != null)
-                return false;
-        }
-        else if (!payload.equals(other.payload))
-            return false;
-        return true;
+
+        VirtualCells that = (VirtualCells) other;
+        return this.isKeyOrFilter == that.isKeyOrFilter
+                && this.payload == that.payload;
     }
 
     /**
@@ -170,7 +155,7 @@ public class VirtualCells
     public int dataSize()
     {
         int size = 0;
-        size += dataSize(keyOrConditions());
+        size += dataSize(payload);
         size += TypeSizes.sizeof(isKeyOrFilter);
         return size;
     }
@@ -188,20 +173,17 @@ public class VirtualCells
 
     public void digest(MessageDigest digest)
     {
-        digest(keyOrConditions(), digest);
+        digest(payload, digest);
     }
 
-    private void digest(Map<ByteBuffer, ColumnInfo> payload, MessageDigest digest)
+    private static void digest(Map<ByteBuffer, ColumnInfo> payload, MessageDigest digest)
     {
         if (payload.isEmpty())
             return;
         Object[] keys = payload.keySet().toArray();
         Arrays.sort(keys);
         for (Object key : keys)
-        {
-            // FIXME digest column-identifier
             payload.get(key).digest(digest);
-        }
     }
 
     static class Serializer
@@ -234,7 +216,6 @@ public class VirtualCells
         {
             boolean isFilterOrCondition = in.readBoolean();
             Map<ByteBuffer, ColumnInfo> keyOrConditions = deserializeRowVirtualCellsPayload(header, in);
-
             return VirtualCells.create(keyOrConditions, isFilterOrCondition)
                                .filterDroppedColumns(helper.getBaseDroppedColumns());
         }
