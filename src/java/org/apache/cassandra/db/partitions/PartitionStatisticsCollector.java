@@ -19,11 +19,13 @@ package org.apache.cassandra.db.partitions;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.VirtualCells;
 
 public interface PartitionStatisticsCollector
 {
     public void update(LivenessInfo info);
     public void update(DeletionTime deletionTime);
+    public void update(VirtualCells virtualCells);
     public void update(Cell cell);
     public void updateColumnSetPerRow(long columnSetInRow);
     public void updateHasLegacyCounterShards(boolean hasLegacyCounterShards);

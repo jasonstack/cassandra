@@ -219,12 +219,14 @@ public class AlterTableStatement extends SchemaAlteringStatement
                         }
                     }
 
-                    // If a column is dropped which is included in a view, we don't allow the drop to take place.
+                    // If a column is dropped which is included in a view or used in view's filter, we don't allow the
+                    // drop to take place.
                     boolean rejectAlter = false;
                     StringBuilder viewNames = new StringBuilder();
                     for (ViewMetadata view : views)
                     {
-                        if (!view.includes(columnName)) continue;
+                        if (!view.includes(columnName) && !view.filters(columnName))
+                            continue;
                         if (rejectAlter)
                             viewNames.append(',');
                         rejectAlter = true;

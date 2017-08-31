@@ -27,6 +27,7 @@ import org.junit.Assert;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.db.rows.Unfiltered.Kind;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.btree.BTree;
@@ -59,8 +60,8 @@ public class UnfilteredRowsGenerator
         {
             Row row = (Row) curr;
             String delTime = "";
-            if (!row.deletion().time().isLive())
-                delTime = "D" + row.deletion().time().markedForDeleteAt();
+            if (!row.deletion().isLive())
+                delTime = "D" + row.deletion().markedForDeleteAt();
             val = val + "[" + row.primaryKeyLivenessInfo().timestamp() + delTime + "]";
         }
         return val;
@@ -231,7 +232,8 @@ public class UnfilteredRowsGenerator
         final Clustering clustering = clusteringFor(pos);
         final LivenessInfo live = LivenessInfo.create(time, UnfilteredRowIteratorsMergeTest.nowInSec);
         final DeletionTime delTime = deletionTime == -1 ? DeletionTime.LIVE : new DeletionTime(deletionTime, deletionTime);
-        return BTreeRow.create(clustering, live, Row.Deletion.regular(delTime), BTree.empty());
+        final VirtualCells virtualCells = VirtualCells.EMPTY;
+        return BTreeRow.create(clustering, live, delTime, virtualCells, BTree.empty());
     }
 
     static Clustering clusteringFor(int i)

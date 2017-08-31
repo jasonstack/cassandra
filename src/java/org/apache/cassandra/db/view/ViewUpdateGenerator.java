@@ -26,7 +26,11 @@ import com.google.common.collect.PeekingIterator;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.cql3.QueryOptions;
+import org.apache.cassandra.cql3.restrictions.Restriction;
+import org.apache.cassandra.cql3.restrictions.Restrictions;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -121,14 +125,14 @@ public class ViewUpdateGenerator
                 createEntry(mergedBaseRow);
                 return;
             case DELETE_OLD:
-                deleteOldEntry(existingBaseRow);
+                deleteOldEntry(existingBaseRow, mergedBaseRow);
                 return;
             case UPDATE_EXISTING:
                 updateEntry(existingBaseRow, mergedBaseRow);
                 return;
             case SWITCH_ENTRY:
                 createEntry(mergedBaseRow);
-                deleteOldEntry(existingBaseRow);
+                deleteOldEntry(existingBaseRow, mergedBaseRow);
                 return;
         }
     }
@@ -185,6 +189,7 @@ public class ViewUpdateGenerator
             // The view entry is necessarily the same pre and post update.
 
             // Note that we allow existingBaseRow to be null and treat it as empty (see MultiViewUpdateBuilder.generateViewsMutations).
+            // FIXME update this, it should check if view row exists..
             boolean existingHasLiveData = existingBaseRow != null && existingBaseRow.hasLiveData(nowInSec);
             boolean mergedHasLiveData = mergedBaseRow.hasLiveData(nowInSec);
             return existingHasLiveData
@@ -206,7 +211,7 @@ public class ViewUpdateGenerator
         if (!isLive(after))
             return UpdateAction.DELETE_OLD;
 
-        return baseColumn.cellValueType().compare(before.value(), after.value()) == 0
+        return baseColumn.type.compare(before.value(), after.value()) == 0
              ? UpdateAction.UPDATE_EXISTING
              : UpdateAction.SWITCH_ENTRY;
     }
@@ -216,7 +221,7 @@ public class ViewUpdateGenerator
         return view.matchesViewFilter(baseDecoratedKey, baseRow, nowInSec);
     }
 
-    private boolean isLive(Cell cell)
+    private boolean isLive(ColumnData cell)
     {
         return cell != null && cell.isLive(nowInSec);
     }
@@ -233,8 +238,9 @@ public class ViewUpdateGenerator
             return;
 
         startNewUpdate(baseRow);
-        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow));
+        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(baseRow.primaryKeyLivenessInfo());
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
+        currentViewEntryBuilder.addVirtualCells(computeVirtualCells(null, baseRow, false)); 
 
         for (ColumnData data : baseRow)
         {
@@ -269,7 +275,7 @@ public class ViewUpdateGenerator
         }
         if (!matchesViewFilter(mergedBaseRow))
         {
-            deleteOldEntryInternal(existingBaseRow);
+            deleteOldEntryInternal(existingBaseRow, mergedBaseRow);
             return;
         }
 
@@ -278,9 +284,25 @@ public class ViewUpdateGenerator
         // In theory, it may be the PK liveness and row deletion hasn't been change by the update
         // and we could condition the 2 additions below. In practice though, it's as fast (if not
         // faster) to compute those info than to check if they have changed so we keep it simple.
-        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow));
+        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(mergedBaseRow.primaryKeyLivenessInfo());
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
+        currentViewEntryBuilder.addVirtualCells(computerVirtualCellsForUpdate(existingBaseRow, mergedBaseRow));
 
+        addCellThatDiffers(existingBaseRow, mergedBaseRow);
+
+        submitUpdate();
+    }
+
+    private void addCellThatDiffers(Row existingBaseRow, Row mergedBaseRow)
+    {
+        addCellThatDiffers(existingBaseRow, mergedBaseRow, false);
+    }
+
+    /*
+     * if it's for view deletion, only tombstone is sent
+     */
+    private void addCellThatDiffers(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
+    {
         // We only add to the view update the cells from mergedBaseRow that differs from
         // existingBaseRow. For that and for speed we can just cell pointer equality: if the update
         // hasn't touched a cell, we know it will be the same object in existingBaseRow and
@@ -336,6 +358,8 @@ public class ViewUpdateGenerator
                 PeekingIterator<Cell> existingCells = Iterators.peekingIterator(existingComplexData.iterator());
                 for (Cell mergedCell : mergedComplexData)
                 {
+                    if (isViewDeletion && isLive(mergedCell))
+                        continue;
                     Cell existingCell = null;
                     // Find if there is corresponding cell in the existing row
                     while (existingCells.hasNext())
@@ -358,12 +382,13 @@ public class ViewUpdateGenerator
             }
             else
             {
+                if (isViewDeletion && isLive((Cell) mergedData))
+                    continue;
                 // Note that we've already eliminated the case where merged == existing
                 addCell(viewColumn, (Cell)mergedData);
             }
         }
 
-        submitUpdate();
     }
 
     /**
@@ -371,29 +396,295 @@ public class ViewUpdateGenerator
      * <p>
      * This method checks that the base row does match the view filter before bothering.
      */
-    private void deleteOldEntry(Row existingBaseRow)
+    private void deleteOldEntry(Row existingBaseRow, Row mergedBaseRow)
     {
         // Before deleting an old entry, make sure it was matching the view filter (otherwise there is nothing to delete)
         if (!matchesViewFilter(existingBaseRow))
             return;
 
-        deleteOldEntryInternal(existingBaseRow);
+        deleteOldEntryInternal(existingBaseRow, mergedBaseRow);
     }
 
-    private void deleteOldEntryInternal(Row existingBaseRow)
+    private void deleteOldEntryInternal(Row existingBaseRow, Row mergedBaseRow)
     {
         startNewUpdate(existingBaseRow);
-        DeletionTime dt = new DeletionTime(computeTimestampForEntryDeletion(existingBaseRow), nowInSec);
-        currentViewEntryBuilder.addRowDeletion(Row.Deletion.shadowable(dt));
+        currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
+        currentViewEntryBuilder.addVirtualCells(computeVirtualCells(existingBaseRow, mergedBaseRow, true));
+        addCellThatDiffers(existingBaseRow, mergedBaseRow, true);
         submitUpdate();
     }
 
     /**
-     * Computes the partition key and clustering for a new view entry, and setup the internal
-     * row builder for the new row.
-     *
-     * This assumes that there is corresponding entry, i.e. no values for the partition key and
-     * clustering are null (since we have eliminated that case through updateAction).
+     * @param existingBaseRow could be null if it's CreateEntry
+     * @param mergedBaseRow
+     * @param isViewDeletion if it's CreateEntry/UpdateExisting in view, false; otherwise true
+     * @return
+     */
+    private VirtualCells computerVirtualCellsForUpdate(Row existingBaseRow, Row mergedBaseRow)
+    {
+        // for isViewDeletion should be checking if there should be view row
+        boolean isViewDeletion = !isViewRowAlive(mergedBaseRow);
+        return computeVirtualCells(existingBaseRow, mergedBaseRow, isViewDeletion);
+    }
+
+    /**
+     * View row is alive in 2 cases:
+     * <p/>
+     * 1. if there is base column used in view pk or filters in view: all those columns should be alive and match the
+     * filter conditions
+     * <p/>
+     * 2. if there is no base column used in view pk or no filters in view: if base row is alive, then view row is
+     * alive.
+     */
+    private boolean isViewRowAlive(Row mergedBaseRow)
+    {
+        if (mergedBaseRow == null)
+            return false;
+
+        for (ColumnMetadata baseColumn : view.baseNonPKColumnsInViewPK)
+        {
+            if (baseColumn.isComplex() && !isLive(mergedBaseRow.getComplexColumnData(baseColumn)))
+                return false;
+            if (baseColumn.isSimple() && !isLive(mergedBaseRow.getCell(baseColumn)))
+                return false;
+        }
+        if (!matchesViewFilter(mergedBaseRow))
+            return false;
+
+        if (view.baseNonPKColumnsInViewPK.isEmpty())
+            return mergedBaseRow.hasLiveData(nowInSec);
+        return true;
+    }
+
+    private VirtualCells computeVirtualCells(Row existingBaseRow, Row mergedBaseRow, boolean isViewDeletion)
+    {
+        if (hasBaseColumnInViewPkOrFilter())
+        {
+            Map<ByteBuffer, ColumnInfo> keyOrConditions = extractKeyOrConditions(existingBaseRow,
+                                                                                 mergedBaseRow,
+                                                                                 isViewDeletion);
+            return VirtualCells.createKeyOrCondition(keyOrConditions);
+        }
+        Map<ByteBuffer, ColumnInfo> unselected = extractUnselected(existingBaseRow, mergedBaseRow, isViewDeletion);
+        return VirtualCells.createUnselected(unselected);
+    }
+
+    /*
+     * has base column used as view pk or filter on base normal column
+     */
+    private boolean hasBaseColumnInViewPkOrFilter()
+    {
+        if(view.baseNonPKColumnsInViewPK.size() > 0)
+            return true;
+        
+        for (Restrictions restrictions : view.getSelectStatement()
+                                             .getRestrictions()
+                                             .getIndexRestrictions()
+                                             .getRestrictions())
+        {
+            if (!isOnPrimaryKey(view, restrictions))
+                return true;
+        }
+        return false;
+    }
+    /**
+     * @param existingBaseRow could be null
+     * @param mergedBaseRow .
+     * @param isViewDeletion only required dead cells or TTLed cells
+     * @return
+     */
+    private Map<ByteBuffer, ColumnInfo> extractKeyOrConditions(Row existingBaseRow,
+                                                           Row mergedBaseRow,
+                                                           boolean isViewDeletion)
+    {
+        // TODO refactor
+
+        // 1. is viewDeletion
+        // 1.1 if any base column in view pk is changed or dead. use existing row's data as ColumnInfo
+        // 1.2 if any base column in view's filter condition is changed or dead. use existing row's data as ColumnInfo
+        // 2. not viewDeletion
+        // 2.2 get all base column in view pk. use merged row's data as ColumnInfo
+        // 2.2 get all base column in view filter condition. use merged row's data as ColumnInfo
+
+        Map<ByteBuffer, ColumnInfo> map = new HashMap<>();
+        // we could have more than 1 base column in view priamry key in the future
+        for (ColumnMetadata column : view.baseNonPKColumnsInViewPK)
+        {
+            Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(column);
+            Cell after = mergedBaseRow.getCell(column);
+            // if "before" is null, there is nothing to cleanup. because view data should not be generated in the first
+            // place
+            if (before == after)
+                continue;
+            if (isViewDeletion && before == null)
+                continue;
+            // should not insert data to view
+            if (!isViewDeletion && after == null)
+                continue;
+            // cell is live and value not changed won't result in view row deletion
+            if (isViewDeletion && isLive(after) && Objects.equals(before.value(), after.value()))
+                continue;
+            Cell data = isViewDeletion ? before : after;
+            ColumnInfo columnInfo = new ColumnInfo(data.timestamp(),
+                                                   data.ttl(),
+                                                   isViewDeletion ? nowInSec : data.localDeletionTime());
+            map.put(data.column().name.bytes, columnInfo);
+        }
+        for (Restrictions restrictions : view.getSelectStatement()
+                                           .getRestrictions()
+                                           .getIndexRestrictions()
+                                           .getRestrictions())
+        {
+            if (isOnPrimaryKey(view, restrictions)) // skip base primary key filtered conditions
+                continue;
+            for (ColumnMetadata column : restrictions.getColumnDefs())
+            {
+                Iterator<Restriction> itr = restrictions.getRestrictions(column).iterator();
+                Restriction restriction = itr.next();
+                assert !itr.hasNext();
+                ColumnInfo columnInfo = computeFilteredColumn(existingBaseRow,
+                                                               mergedBaseRow,
+                                                               column,
+                                                               restriction,
+                                                               isViewDeletion);
+                if (columnInfo != null)
+                    map.put(column.name.bytes, columnInfo);
+            }
+        }
+        return map;
+    }
+
+    private static ColumnData getColumnData(Row row, ColumnMetadata column)
+    {
+        if (row == null)
+            return null;
+        if (column.isComplex())
+            return row.getComplexColumnData(column);
+        return row.getCell(column);
+    }
+
+    private ColumnInfo computeFilteredColumn(Row existingBaseRow,
+                                             Row mergedBaseRow,
+                                             ColumnMetadata column,
+                                             Restriction restriction,
+                                             boolean isViewDeletion)
+    {
+        ColumnData before = getColumnData(existingBaseRow, column);
+        ColumnData after = getColumnData(mergedBaseRow, column);
+        if (before == after)
+            return null;
+        // if "before" is null, there is nothing to cleanup. because view data should not be generated in the first
+        // place
+        if (isViewDeletion && (before == null || after == null))
+            return null;
+        // should not insert data to view
+        if (!isViewDeletion && after == null)
+            return null;
+        // cell is live and no filter condition violation won't result in view row deletion
+        if (isViewDeletion && isLive(after) && satisfyViewFilterCondition(mergedBaseRow, restriction))
+            return null;
+        ColumnData data = isViewDeletion ? before : after;
+        // FIXME for simplicity, don't support TTL on non-frozen collection.
+        // for collection type, its timestamp is generated on server side, new element or modification is always having
+        // bigger timestamp
+        long timestamp = data.maxTimestamp();
+        int ttl = column.isComplex() ? 0 : ((Cell) data).ttl();
+        int localDeletionTime;
+        if (isViewDeletion)
+            localDeletionTime = nowInSec;
+        else if (column.isComplex())
+            localDeletionTime = LivenessInfo.NO_EXPIRATION_TIME;
+        else
+            localDeletionTime = ((Cell) data).localDeletionTime();
+        return new ColumnInfo(timestamp, ttl, localDeletionTime);
+    }
+
+    private static boolean isOnPrimaryKey(View view, Restrictions restrictions)
+    {
+        return view.getDefinition()
+                   .baseTableMetadata()
+                   .getColumn(restrictions.getFirstColumn().name).kind.isPrimaryKeyKind();
+    }
+
+    /**
+     * check if given filter condition failed.
+     * 
+     * @param mergedBaseRow
+     * @param restriction
+     * @return
+     */
+    private boolean satisfyViewFilterCondition(Row mergedBaseRow, Restriction restriction)
+    {
+        // TODO refactor
+        QueryOptions options = QueryOptions.forInternalCalls(Collections.emptyList());
+        RowFilter filter = RowFilter.create();
+        restriction.addRowFilterTo(filter, null, options);
+        return filter.isSatisfiedBy(baseMetadata, baseDecoratedKey, mergedBaseRow, nowInSec);
+    }
+
+    private boolean isLive(ComplexColumnData column)
+    {
+        return column != null && column.isLive(nowInSec);
+    }
+
+    private ColumnInfo computeUnselectedColumn(Row existingBaseRow,
+                                               Row mergedBaseRow,
+                                               ColumnMetadata column,
+                                               boolean isViewDeletion)
+    {
+        ColumnData before = getColumnData(existingBaseRow, column);
+        ColumnData after = getColumnData(mergedBaseRow, column);
+        ColumnData data = null;
+        if (isViewDeletion && isLive(before) && !isLive(after))
+            data = before;
+        if (isViewDeletion && after != null && after.isLive(nowInSec))
+            data = after;
+        if (!isViewDeletion && isLive(after))
+            data = after;
+        if (data == null)
+            return null;
+        // for collection type, its timestamp is generated on server side, new element or modification is always having
+        // bigger timestamp
+        long timestamp = data.maxTimestamp();
+        int ttl = column.isComplex() ? 0 : ((Cell) data).ttl(); // FIXME don't support ttl in non-frozen collection
+        int localDeletionTime;
+        if (isViewDeletion)
+            localDeletionTime = nowInSec;
+        else if (column.isComplex())
+            localDeletionTime = LivenessInfo.NO_EXPIRATION_TIME;
+        else
+            localDeletionTime = ((Cell) data).localDeletionTime();
+        return new ColumnInfo(timestamp, ttl, localDeletionTime);
+    }
+
+    /*
+     * not necessary to generate unselected info if there is keyOrConditions, because those columns must be alive so
+     * that view row exists
+     */
+    private Map<ByteBuffer, ColumnInfo> extractUnselected(Row existingBaseRow,
+                                                          Row mergedBaseRow,
+                                                          boolean isViewDeletion)
+    {
+        if (view.getDefinition().baseTableMetadata().columns().size() == viewMetadata.columns().size())
+            return Collections.emptyMap();
+
+        Map<ByteBuffer, ColumnInfo> map = new HashMap<>();
+        for (ColumnMetadata column : view.getDefinition().baseTableMetadata().columns())
+        {
+            if (view.getViewColumn(column) != null)
+                continue;
+            ColumnInfo columnInfo = computeUnselectedColumn(existingBaseRow, mergedBaseRow, column, isViewDeletion);
+            if (columnInfo != null)
+                map.put(column.name.bytes, columnInfo);
+        }
+        return map;
+    }
+
+
+    /**
+     * Computes the partition key and clustering for a new view entry, and setup the internal row builder for the new
+     * row. This assumes that there is corresponding entry, i.e. no values for the partition key and clustering are null
+     * (since we have eliminated that case through updateAction).
      */
     private void startNewUpdate(Row baseRow)
     {
@@ -409,82 +700,6 @@ public class ViewUpdateGenerator
         }
 
         currentViewEntryBuilder.newRow(Clustering.make(clusteringValues));
-    }
-
-    private LivenessInfo computeLivenessInfoForEntry(Row baseRow)
-    {
-        /*
-         * We need to compute both the timestamp and expiration.
-         *
-         * For the timestamp, it makes sense to use the bigger timestamp for all view PK columns.
-         *
-         * This is more complex for the expiration. We want to maintain consistency between the base and the view, so the
-         * entry should only exist as long as the base row exists _and_ has non-null values for all the columns that are part
-         * of the view PK.
-         * Which means we really have 2 cases:
-         *   1) either the columns for the base and view PKs are exactly the same: in that case, the view entry should live
-         *      as long as the base row lives. This means the view entry should only expire once *everything* in the base row
-         *      has expired. Which means the row TTL should be the max of any other TTL.
-         *   2) or there is a column that is not in the base PK but is in the view PK (we can only have one so far, we'll need
-         *      to slightly adapt if we allow more later): in that case, as long as that column lives the entry does too, but
-         *      as soon as it expires (or is deleted for that matter) the entry also should expire. So the expiration for the
-         *      view is the one of that column, irregarding of any other expiration.
-         *      To take an example of that case, if you have:
-         *        CREATE TABLE t (a int, b int, c int, PRIMARY KEY (a, b))
-         *        CREATE MATERIALIZED VIEW mv AS SELECT * FROM t WHERE c IS NOT NULL AND a IS NOT NULL AND b IS NOT NULL PRIMARY KEY (c, a, b)
-         *        INSERT INTO t(a, b) VALUES (0, 0) USING TTL 3;
-         *        UPDATE t SET c = 0 WHERE a = 0 AND b = 0;
-         *      then even after 3 seconds elapsed, the row will still exist (it just won't have a "row marker" anymore) and so
-         *      the MV should still have a corresponding entry.
-         */
-        assert view.baseNonPKColumnsInViewPK.size() <= 1; // This may change, but is currently an enforced limitation
-
-        LivenessInfo baseLiveness = baseRow.primaryKeyLivenessInfo();
-
-        if (view.baseNonPKColumnsInViewPK.isEmpty())
-        {
-            int ttl = baseLiveness.ttl();
-            int expirationTime = baseLiveness.localExpirationTime();
-            for (Cell cell : baseRow.cells())
-            {
-                if (cell.ttl() > ttl)
-                {
-                    ttl = cell.ttl();
-                    expirationTime = cell.localDeletionTime();
-                }
-            }
-            return ttl == baseLiveness.ttl()
-                 ? baseLiveness
-                 : LivenessInfo.withExpirationTime(baseLiveness.timestamp(), ttl, expirationTime);
-        }
-
-        ColumnMetadata baseColumn = view.baseNonPKColumnsInViewPK.get(0);
-        Cell cell = baseRow.getCell(baseColumn);
-        assert isLive(cell) : "We shouldn't have got there if the base row had no associated entry";
-
-        long timestamp = Math.max(baseLiveness.timestamp(), cell.timestamp());
-        return LivenessInfo.withExpirationTime(timestamp, cell.ttl(), cell.localDeletionTime());
-    }
-
-    private long computeTimestampForEntryDeletion(Row baseRow)
-    {
-        // We delete the old row with it's row entry timestamp using a shadowable deletion.
-        // We must make sure that the deletion deletes everything in the entry (or the entry will
-        // still show up), so we must use the bigger timestamp found in the existing row (for any
-        // column included in the view at least).
-        // TODO: We have a problem though: if the entry is "resurected" by a later update, we would
-        // need to ensure that the timestamp for then entry then is bigger than the tombstone
-        // we're just inserting, which is not currently guaranteed.
-        // This is a bug for a separate ticket though.
-        long timestamp = baseRow.primaryKeyLivenessInfo().timestamp();
-        for (ColumnData data : baseRow)
-        {
-            if (!view.getDefinition().includes(data.column().name))
-                continue;
-
-            timestamp = Math.max(timestamp, data.maxTimestamp());
-        }
-        return timestamp;
     }
 
     private void addColumnData(ColumnMetadata viewColumn, ColumnData baseTableData)

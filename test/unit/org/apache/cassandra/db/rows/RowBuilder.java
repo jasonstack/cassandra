@@ -25,6 +25,7 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.LivenessInfo;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.db.rows.Row.Builder;
 import org.apache.cassandra.utils.Pair;
 
@@ -36,8 +37,9 @@ public class RowBuilder implements Row.Builder
 {
     public List<Cell> cells = new LinkedList<>();
     public Clustering clustering = null;
+    public VirtualCells virtualCells = null;
     public LivenessInfo livenessInfo = null;
-    public Row.Deletion deletionTime = null;
+    public DeletionTime deletionTime = null;
     public List<Pair<ColumnMetadata, DeletionTime>> complexDeletions = new LinkedList<>();
 
     @Override
@@ -67,13 +69,20 @@ public class RowBuilder implements Row.Builder
         return clustering;
     }
 
+    @Override
+    public void addVirtualCells(VirtualCells virCells)
+    {
+        assert virtualCells == null;
+        this.virtualCells = virCells;
+    }
+
     public void addPrimaryKeyLivenessInfo(LivenessInfo info)
     {
         assert livenessInfo == null;
         livenessInfo = info;
     }
 
-    public void addRowDeletion(Row.Deletion deletion)
+    public void addRowDeletion(DeletionTime deletion)
     {
         assert deletionTime == null;
         deletionTime = deletion;

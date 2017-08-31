@@ -177,7 +177,11 @@ public class LivenessInfo
      */
     public boolean supersedes(LivenessInfo other)
     {
-        return timestamp > other.timestamp;
+        if (timestamp != other.timestamp)
+            return timestamp > other.timestamp;
+        if (isExpiring() == other.isExpiring())
+            return localExpirationTime() > other.localExpirationTime();
+        return isExpiring();
     }
 
     /**

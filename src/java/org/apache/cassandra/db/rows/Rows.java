@@ -26,6 +26,7 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.utils.MergeIterator;
 import org.apache.cassandra.utils.WrappedInt;
 
@@ -43,6 +44,7 @@ public abstract class Rows
         builder.newRow(row.clustering());
         builder.addPrimaryKeyLivenessInfo(row.primaryKeyLivenessInfo());
         builder.addRowDeletion(row.deletion());
+        builder.addVirtualCells(row.virtualCells());
         for (ColumnData cd : row)
         {
             if (cd.column().isSimple())
@@ -87,7 +89,8 @@ public abstract class Rows
         assert !row.isEmpty();
 
         collector.update(row.primaryKeyLivenessInfo());
-        collector.update(row.deletion().time());
+        collector.update(row.deletion());
+        collector.update(row.virtualCells());
 
         //we have to wrap these for the lambda
         final WrappedInt columnCount = new WrappedInt(0);
@@ -135,17 +138,22 @@ public abstract class Rows
     {
         Clustering clustering = merged.clustering();
         LivenessInfo mergedInfo = merged.primaryKeyLivenessInfo().isEmpty() ? null : merged.primaryKeyLivenessInfo();
-        Row.Deletion mergedDeletion = merged.deletion().isLive() ? null : merged.deletion();
+        DeletionTime mergedDeletion = merged.deletion().isLive() ? null : merged.deletion();
+        VirtualCells mergedVirCells = merged.virtualCells().isEmpty() ? null : merged.virtualCells();
+
         for (int i = 0; i < inputs.length; i++)
         {
             Row input = inputs[i];
             LivenessInfo inputInfo = input == null || input.primaryKeyLivenessInfo().isEmpty() ? null : input.primaryKeyLivenessInfo();
-            Row.Deletion inputDeletion = input == null || input.deletion().isLive() ? null : input.deletion();
+            DeletionTime inputDeletion = input == null || input.deletion().isLive() ? null : input.deletion();
+            VirtualCells inputVirCells = input == null || input.virtualCells().isEmpty() ? null : input.virtualCells();
 
             if (mergedInfo != null || inputInfo != null)
                 diffListener.onPrimaryKeyLivenessInfo(i, clustering, mergedInfo, inputInfo);
             if (mergedDeletion != null || inputDeletion != null)
                 diffListener.onDeletion(i, clustering, mergedDeletion, inputDeletion);
+            if (mergedVirCells != null || inputVirCells != null)
+                diffListener.onVirtualCells(i, clustering, mergedVirCells, inputVirCells);
         }
 
         List<Iterator<ColumnData>> inputIterators = new ArrayList<>(1 + inputs.length);
@@ -274,20 +282,20 @@ public abstract class Rows
         LivenessInfo existingInfo = existing.primaryKeyLivenessInfo();
         LivenessInfo updateInfo = update.primaryKeyLivenessInfo();
         LivenessInfo mergedInfo = existingInfo.supersedes(updateInfo) ? existingInfo : updateInfo;
+        VirtualCells mergedVirtualCells = existing.virtualCells().merge(update.virtualCells());
 
         long timeDelta = Math.abs(existingInfo.timestamp() - mergedInfo.timestamp());
 
-        Row.Deletion rowDeletion = existing.deletion().supersedes(update.deletion()) ? existing.deletion() : update.deletion();
+        DeletionTime rowDeletion = existing.deletion().supersedes(update.deletion()) ? existing.deletion() : update.deletion();
 
         if (rowDeletion.deletes(mergedInfo))
             mergedInfo = LivenessInfo.EMPTY;
-        else if (rowDeletion.isShadowedBy(mergedInfo))
-            rowDeletion = Row.Deletion.LIVE;
 
         builder.addPrimaryKeyLivenessInfo(mergedInfo);
         builder.addRowDeletion(rowDeletion);
+        builder.addVirtualCells(mergedVirtualCells);
 
-        DeletionTime deletion = rowDeletion.time();
+        DeletionTime deletion = rowDeletion;
 
         Iterator<ColumnData> a = existing.iterator();
         Iterator<ColumnData> b = update.iterator();
@@ -346,16 +354,19 @@ public abstract class Rows
         Clustering clustering = existing.clustering();
         builder.newRow(clustering);
 
-        DeletionTime deletion = update.deletion().time();
+        DeletionTime deletion = update.deletion();
         if (rangeDeletion.supersedes(deletion))
             deletion = rangeDeletion;
 
         LivenessInfo existingInfo = existing.primaryKeyLivenessInfo();
         if (!deletion.deletes(existingInfo))
             builder.addPrimaryKeyLivenessInfo(existingInfo);
-        Row.Deletion rowDeletion = existing.deletion();
-        if (!deletion.supersedes(rowDeletion.time()))
+        DeletionTime rowDeletion = existing.deletion();
+        if (!deletion.supersedes(rowDeletion))
             builder.addRowDeletion(rowDeletion);
+
+        VirtualCells mergedVirtualCells = existing.virtualCells().merge(update.virtualCells());
+        builder.addVirtualCells(mergedVirtualCells);
 
         Iterator<ColumnData> a = existing.iterator();
         Iterator<ColumnData> b = update.iterator();

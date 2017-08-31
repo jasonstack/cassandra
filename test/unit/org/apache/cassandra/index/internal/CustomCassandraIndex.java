@@ -399,13 +399,13 @@ public class CustomCassandraIndex implements Index
 
             private void indexPrimaryKey(final Clustering clustering,
                                          final LivenessInfo liveness,
-                                         final Row.Deletion deletion)
+                                         final DeletionTime deletion)
             {
                 if (liveness.timestamp() != LivenessInfo.NO_TIMESTAMP)
                     insert(key.getKey(), clustering, null, liveness, opGroup);
 
                 if (!deletion.isLive())
-                    delete(key.getKey(), clustering, deletion.time(), opGroup);
+                    delete(key.getKey(), clustering, deletion, opGroup);
             }
 
             private LivenessInfo getPrimaryKeyIndexLiveness(Row row)
@@ -504,7 +504,7 @@ public class CustomCassandraIndex implements Index
                           DeletionTime deletion,
                           OpOrder.Group opGroup)
     {
-        Row row = BTreeRow.emptyDeletedRow(indexClustering, Row.Deletion.regular(deletion));
+        Row row = BTreeRow.emptyDeletedRow(indexClustering, deletion);
         PartitionUpdate upd = partitionUpdate(indexKey, row);
         indexCfs.apply(upd, UpdateTransaction.NO_OP, opGroup, null);
         logger.debug("Removed index entry for value {}", indexKey);

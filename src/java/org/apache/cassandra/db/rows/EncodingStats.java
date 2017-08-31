@@ -22,6 +22,7 @@ import java.util.*;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 
@@ -223,6 +224,14 @@ public class EncodingStats
             while (rows.hasNext())
                 Rows.collectStats(rows.next(), collector);
             return collector.get();
+        }
+
+        @Override
+        public void update(VirtualCells virtualCells)
+        {
+            // FIXME need to optimize
+            if (virtualCells.isEmpty())
+                return;
         }
     }
 

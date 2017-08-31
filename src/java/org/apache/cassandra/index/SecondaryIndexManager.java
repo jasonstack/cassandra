@@ -58,6 +58,7 @@ import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.index.transactions.*;
@@ -1188,10 +1189,12 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             toRemove.newRow(existing.clustering());
             toRemove.addPrimaryKeyLivenessInfo(existing.primaryKeyLivenessInfo());
             toRemove.addRowDeletion(existing.deletion());
+            toRemove.addVirtualCells(existing.virtualCells());
             final Row.Builder toInsert = BTreeRow.sortedBuilder();
             toInsert.newRow(updated.clustering());
             toInsert.addPrimaryKeyLivenessInfo(updated.primaryKeyLivenessInfo());
             toInsert.addRowDeletion(updated.deletion());
+            toInsert.addVirtualCells(updated.virtualCells());
             // diff listener collates the columns to be added & removed from the indexes
             RowDiffListener diffListener = new RowDiffListener()
             {
@@ -1199,7 +1202,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                 {
                 }
 
-                public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)
+                public void onDeletion(int i, Clustering clustering, DeletionTime merged, DeletionTime original)
                 {
                 }
 
@@ -1214,6 +1217,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
                     if (merged == null || (original != null && shouldCleanupOldValue(original, merged)))
                         toRemove.addCell(original);
+                }
+
+                @Override
+                public void onVirtualCells(int i, Clustering clustering, VirtualCells merged, VirtualCells original)
+                {
                 }
             };
             Rows.diff(diffListener, updated, existing);
@@ -1292,7 +1300,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                         getBuilder(i, clustering).addPrimaryKeyLivenessInfo(original);
                 }
 
-                public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)
+                public void onDeletion(int i, Clustering clustering, DeletionTime merged, DeletionTime original)
                 {
                 }
 
@@ -1314,6 +1322,12 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                         builders[index].newRow(clustering);
                     }
                     return builders[index];
+                }
+
+                @Override
+                public void onVirtualCells(int i, Clustering clustering, VirtualCells merged, VirtualCells original)
+                {
+                    // not used in Secondary Index
                 }
             };
 

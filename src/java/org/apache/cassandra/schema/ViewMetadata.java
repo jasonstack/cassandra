@@ -23,6 +23,7 @@ import java.util.stream.Collectors;
 
 import org.antlr.runtime.*;
 import org.apache.cassandra.cql3.*;
+import org.apache.cassandra.cql3.restrictions.Restriction;
 import org.apache.cassandra.cql3.statements.SelectStatement;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.view.View;
@@ -73,6 +74,36 @@ public final class ViewMetadata
     public boolean includes(ColumnIdentifier column)
     {
         return metadata.getColumn(column) != null;
+    }
+
+    /**
+     * @return true if the view specified a filtered condition on given column
+     */
+    public boolean filters(ColumnIdentifier column)
+    {
+        for (Relation rel : select.whereClause.relations)
+        {
+            if (rel instanceof SingleColumnRelation)
+            {
+                ColumnIdentifier restricted = ((SingleColumnRelation) rel).getEntity().getIdentifier(metadata);
+                if (restricted.equals(column))
+                    return true;
+            } else if (rel instanceof MultiColumnRelation) { 
+                for (ColumnMetadata.Raw raw: ((MultiColumnRelation) rel).getEntities()) {
+                    if (raw.getIdentifier(metadata).equals(column))
+                    return true;
+                }
+            }
+            else if (rel instanceof TokenRelation)
+            {
+                for (ColumnMetadata meta : ((TokenRelation) rel).getColumnDefinitions(metadata))
+                {
+                    if (meta.name.equals(column))
+                        return true;
+                }
+            }
+        }
+        return false;
     }
 
     public ViewMetadata copy(TableMetadata newMetadata)

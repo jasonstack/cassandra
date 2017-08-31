@@ -58,6 +58,14 @@ public abstract class ColumnData
     public abstract long unsharedHeapSizeExcludingData();
 
     /**
+     * Whether the cell is live or not given the current time.
+     *
+     * @param nowInSec the current time in seconds. This is used to decide if an expiring cell is expired or live.
+     * @return whether the cell is live or not at {@code nowInSec}.
+     */
+    public abstract boolean isLive(int nowInSec);
+
+    /**
      * Validate the column data.
      *
      * @throws MarshalException if the data is not valid.

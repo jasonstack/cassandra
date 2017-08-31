@@ -33,6 +33,7 @@ import org.apache.cassandra.db.commitlog.IntervalSet;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -177,6 +178,14 @@ public class MetadataCollector implements PartitionStatisticsCollector
         updateTimestamp(cell.timestamp());
         updateTTL(cell.ttl());
         updateLocalDeletionTime(cell.localDeletionTime());
+    }
+
+    @Override
+    public void update(VirtualCells virtualCells)
+    {
+        // FIXME need to optimize
+        if (virtualCells.isEmpty())
+            return;
     }
 
     public void update(DeletionTime dt)

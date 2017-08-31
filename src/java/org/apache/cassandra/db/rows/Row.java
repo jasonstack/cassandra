@@ -18,17 +18,15 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.*;
-import java.security.MessageDigest;
 import java.util.function.Consumer;
 
 import com.google.common.base.Predicate;
-
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MergeIterator;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
@@ -69,7 +67,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      *
      * @return the row deletion.
      */
-    public Deletion deletion();
+    public DeletionTime deletion();
 
     /**
      * Liveness information for the primary key columns of this row.
@@ -88,6 +86,20 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      * wasn't pre-existing (which users are encouraged not to do, but we can't validate).
      */
     public LivenessInfo primaryKeyLivenessInfo();
+
+    /**
+     * Only for Materialized View. Additional information for:
+     * <p/>
+     * 1. base column used in view primary key, base columns used in view's filter conditions. If any of these column is
+     * not alive, entire view row is considered dead regardless LivenessInfo and DeletionTime.(this rule has biggest
+     * priority)
+     * <p/>
+     * 2. and base columns not selected in view. if any of these column is alive, it means view's primary key is alive
+     * regards LivenessInfo or liveness of view's columns
+     * 
+     * @return
+     */
+    public VirtualCells virtualCells();
 
     /**
      * Whether the row correspond to a static row or not.
@@ -262,138 +274,6 @@ public interface Row extends Unfiltered, Collection<ColumnData>
     public void apply(Consumer<ColumnData> function, Predicate<ColumnData> stopCondition, boolean reverse);
 
     /**
-     * A row deletion/tombstone.
-     * <p>
-     * A row deletion mostly consists of the time of said deletion, but there is 2 variants: shadowable
-     * and regular row deletion.
-     * <p>
-     * A shadowable row deletion only exists if the row has no timestamp. In other words, the deletion is only
-     * valid as long as no newer insert is done (thus setting a row timestamp; note that if the row timestamp set
-     * is lower than the deletion, it is shadowed (and thus ignored) as usual).
-     * <p>
-     * That is, if a row has a shadowable deletion with timestamp A and an update is made to that row with a
-     * timestamp B such that {@code B > A} (and that update sets the row timestamp), then the shadowable deletion is 'shadowed'
-     * by that update. A concrete consequence is that if said update has cells with timestamp lower than A, then those
-     * cells are preserved(since the deletion is removed), and this is contrary to a normal (regular) deletion where the
-     * deletion is preserved and such cells are removed.
-     * <p>
-     * Currently, the only use of shadowable row deletions is Materialized Views, see CASSANDRA-10261.
-     */
-    public static class Deletion
-    {
-        public static final Deletion LIVE = new Deletion(DeletionTime.LIVE, false);
-
-        private final DeletionTime time;
-        private final boolean isShadowable;
-
-        public Deletion(DeletionTime time, boolean isShadowable)
-        {
-            assert !time.isLive() || !isShadowable;
-            this.time = time;
-            this.isShadowable = isShadowable;
-        }
-
-        public static Deletion regular(DeletionTime time)
-        {
-            return time.isLive() ? LIVE : new Deletion(time, false);
-        }
-
-        public static Deletion shadowable(DeletionTime time)
-        {
-            return new Deletion(time, true);
-        }
-
-        /**
-         * The time of the row deletion.
-         *
-         * @return the time of the row deletion.
-         */
-        public DeletionTime time()
-        {
-            return time;
-        }
-
-        /**
-         * Whether the deletion is a shadowable one or not.
-         *
-         * @return whether the deletion is a shadowable one. Note that if {@code isLive()}, then this is
-         * guarantee to return {@code false}.
-         */
-        public boolean isShadowable()
-        {
-            return isShadowable;
-        }
-
-        /**
-         * Wether the deletion is live or not, that is if its an actual deletion or not.
-         *
-         * @return {@code true} if this represents no deletion of the row, {@code false} if that's an actual
-         * deletion.
-         */
-        public boolean isLive()
-        {
-            return time().isLive();
-        }
-
-        public boolean supersedes(DeletionTime that)
-        {
-            return time.supersedes(that);
-        }
-
-        public boolean supersedes(Deletion that)
-        {
-            return time.supersedes(that.time);
-        }
-
-        public boolean isShadowedBy(LivenessInfo primaryKeyLivenessInfo)
-        {
-            return isShadowable && primaryKeyLivenessInfo.timestamp() > time.markedForDeleteAt();
-        }
-
-        public boolean deletes(LivenessInfo info)
-        {
-            return time.deletes(info);
-        }
-
-        public boolean deletes(Cell cell)
-        {
-            return time.deletes(cell);
-        }
-
-        public void digest(MessageDigest digest)
-        {
-            time.digest(digest);
-            FBUtilities.updateWithBoolean(digest, isShadowable);
-        }
-
-        public int dataSize()
-        {
-            return time.dataSize() + 1;
-        }
-
-        @Override
-        public boolean equals(Object o)
-        {
-            if(!(o instanceof Deletion))
-                return false;
-            Deletion that = (Deletion)o;
-            return this.time.equals(that.time) && this.isShadowable == that.isShadowable;
-        }
-
-        @Override
-        public final int hashCode()
-        {
-            return Objects.hash(time, isShadowable);
-        }
-
-        @Override
-        public String toString()
-        {
-            return String.format("%s%s", time, isShadowable ? "(shadowable)" : "");
-        }
-    }
-
-    /**
      * Interface for building rows.
      * <p>
      * The builder of a row should always abid to the following rules:
@@ -451,14 +331,23 @@ public interface Row extends Unfiltered, Collection<ColumnData>
         public Clustering clustering();
 
         /**
-         * Adds the liveness information for the partition key columns of this row.
+         * Adds the liveness information for the primary key columns of this row.
          *
-         * This call is optional (skipping it is equivalent to calling {@code addPartitionKeyLivenessInfo(LivenessInfo.NONE)}).
+         * This call is optional (skipping it is equivalent to calling {@code addPartitionKeyLivenessInfo(LivenessInfo.EMPTY)}).
          *
-         * @param info the liveness information for the partition key columns of the built row.
+         * @param info the liveness information for the primary key columns of the built row.
          */
         public void addPrimaryKeyLivenessInfo(LivenessInfo info);
 
+        /**
+         * Adds the virtual cells information for the primary key columns of this row.
+         *
+         * This call is optional (skipping it is equivalent to calling {@code addVirtualCells(VirtualCells.EMPTY)}).
+         *
+         * @param virtualCells the information for addition cells info for the built *VIEW* row.
+         */
+        public void addVirtualCells(VirtualCells virtualCells);
+        
         /**
          * Adds the deletion information for this row.
          *
@@ -466,7 +355,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
          *
          * @param deletion the row deletion time, or {@code Deletion.LIVE} if the row isn't deleted.
          */
-        public void addRowDeletion(Deletion deletion);
+        public void addRowDeletion(DeletionTime deletion);
 
         /**
          * Adds a cell to this builder.
@@ -488,7 +377,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
          *
          * @return the last row built by this builder.
          */
-        public Row build();
+        public Row build(); 
     }
 
     /**
@@ -601,6 +490,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
         private Clustering clustering;
         private int rowsToMerge;
         private int lastRowSet = -1;
+        private final int nowInSec;
 
         private final List<ColumnData> dataBuffer = new ArrayList<>();
         private final ColumnDataReducer columnDataReducer;
@@ -610,6 +500,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             this.rows = new Row[size];
             this.columnDataIterators = new ArrayList<>(size);
             this.columnDataReducer = new ColumnDataReducer(size, nowInSec, hasComplex);
+            this.nowInSec = nowInSec;
         }
 
         public void clear()
@@ -637,11 +528,15 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             {
                 Row row = rows[lastRowSet];
                 assert row != null;
+                if (row.virtualCells().shouldWipeRow(nowInSec))
+                {
+                    return null;
+                }
                 return row;
             }
-
+            VirtualCells virtualCells = VirtualCells.EMPTY;
             LivenessInfo rowInfo = LivenessInfo.EMPTY;
-            Deletion rowDeletion = Deletion.LIVE;
+            DeletionTime rowDeletion = DeletionTime.LIVE;
             for (Row row : rows)
             {
                 if (row == null)
@@ -651,15 +546,16 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                     rowInfo = row.primaryKeyLivenessInfo();
                 if (row.deletion().supersedes(rowDeletion))
                     rowDeletion = row.deletion();
+                virtualCells = virtualCells.merge(row.virtualCells());
             }
 
-            if (rowDeletion.isShadowedBy(rowInfo))
-                rowDeletion = Deletion.LIVE;
+            // if (rowDeletion.isShadowedBy(rowInfo))
+            // rowDeletion = Deletion.LIVE;
 
             if (rowDeletion.supersedes(activeDeletion))
-                activeDeletion = rowDeletion.time();
+                activeDeletion = rowDeletion;
             else
-                rowDeletion = Deletion.LIVE;
+                rowDeletion = DeletionTime.LIVE;
 
             if (activeDeletion.deletes(rowInfo))
                 rowInfo = LivenessInfo.EMPTY;
@@ -675,11 +571,14 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                 if (data != null)
                     dataBuffer.add(data);
             }
-
             // Because some data might have been shadowed by the 'activeDeletion', we could have an empty row
-            return rowInfo.isEmpty() && rowDeletion.isLive() && dataBuffer.isEmpty()
+            return rowInfo.isEmpty() && rowDeletion.isLive() && dataBuffer.isEmpty() && virtualCells.isEmpty()
                  ? null
-                 : BTreeRow.create(clustering, rowInfo, rowDeletion, BTree.build(dataBuffer, UpdateFunction.<ColumnData>noOp()));
+                    : BTreeRow.create(clustering,
+                                      rowInfo,
+                                      rowDeletion,
+                                      virtualCells,
+                                      BTree.build(dataBuffer, UpdateFunction.<ColumnData> noOp()));
         }
 
         public Clustering mergedClustering()

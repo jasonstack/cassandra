@@ -163,6 +163,7 @@ public class TableViews extends AbstractCollection<View>
      * but has simply some updated values. This will be empty for view building as we want to assume anything we'll pass
      * to {@code updates} is new.
      * @param nowInSec the current time in seconds.
+     * @param separateUpdates, if false, mutation is per partition.
      * @return the mutations to apply to the {@code views}. This can be empty.
      */
     public Iterator<Collection<Mutation>> generateViewUpdates(Collection<View> views,
@@ -286,7 +287,10 @@ public class TableViews extends AbstractCollection<View>
                             continue;
 
                         Row updateRow = (Row) update;
-                        addToViewUpdateGenerators(emptyRow(updateRow.clustering(), DeletionTime.LIVE), updateRow, generators, nowInSec);
+                        addToViewUpdateGenerators(emptyRow(updateRow.clustering(), existingsDeletion.currentDeletion()),
+                                                  updateRow,
+                                                  generators,
+                                                  nowInSec);
 
                         // If the updates have been filtered, then we won't have any mutations; we need to make sure that we
                         // only return if the mutations are empty. Otherwise, we continue to search for an update which is
@@ -325,7 +329,10 @@ public class TableViews extends AbstractCollection<View>
                     continue;
 
                 Row updateRow = (Row) update;
-                addToViewUpdateGenerators(emptyRow(updateRow.clustering(), DeletionTime.LIVE), updateRow, generators, nowInSec);
+                addToViewUpdateGenerators(emptyRow(updateRow.clustering(), existingsDeletion.currentDeletion()),
+                                          updateRow,
+                                          generators,
+                                          nowInSec);
             }
 
             return Iterators.singletonIterator(buildMutations(baseTableMetadata.get(), generators));
@@ -475,7 +482,7 @@ public class TableViews extends AbstractCollection<View>
         // Returning null for an empty row is slightly ugly, but the case where there is no pre-existing row is fairly common
         // (especially when building the view), so we want to avoid a dummy allocation of an empty row every time.
         // And MultiViewUpdateBuilder knows how to deal with that.
-        return deletion.isLive() ? null : BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(deletion));
+        return deletion.isLive() ? null : BTreeRow.emptyDeletedRow(clustering, deletion);
     }
 
     /**

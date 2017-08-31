@@ -18,13 +18,12 @@
 package org.apache.cassandra.db.rows;
 
 import java.io.IOException;
-
 import com.google.common.collect.Collections2;
 
 import net.nicoulaj.compilecommand.annotations.Inline;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.rows.Row.Deletion;
+import org.apache.cassandra.db.rows.VirtualCells;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -111,8 +110,10 @@ public class UnfilteredSerializer
      * Extended flags
      */
     private final static int IS_STATIC               = 0x01; // Whether the encoded row is a static. If there is no extended flag, the row is assumed not static.
-    private final static int HAS_SHADOWABLE_DELETION = 0x02; // Whether the row deletion is shadowable. If there is no extended flag (or no row deletion), the deletion is assumed not shadowable.
-
+    private final static int HAS_SHADOWABLE_DELETION = 0x02; // Whether the row deletion is shadowable. If there is
+                                                             // no extended flag (or no row deletion), the deletion is assumed not shadowable.
+    private final static int HAS_ROW_VIRTUAL_CELLS   = 0x04; // whether the livenessInfo is for materialized view.
+    
     public void serialize(Unfiltered unfiltered, SerializationHeader header, DataOutputPlus out, int version)
     throws IOException
     {
@@ -149,23 +150,27 @@ public class UnfilteredSerializer
         boolean isStatic = row.isStatic();
         Columns headerColumns = header.columns(isStatic);
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
-        Row.Deletion deletion = row.deletion();
+        DeletionTime deletion = row.deletion();
+        VirtualCells virtualCells = row.virtualCells();
         boolean hasComplexDeletion = row.hasComplexDeletion();
         boolean hasAllColumns = (row.size() == headerColumns.size());
         boolean hasExtendedFlags = hasExtendedFlags(row);
 
         if (isStatic)
             extendedFlags |= IS_STATIC;
-
+        if (!virtualCells.isEmpty())
+        {
+            extendedFlags |= HAS_ROW_VIRTUAL_CELLS;
+        }
         if (!pkLiveness.isEmpty())
+        {
             flags |= HAS_TIMESTAMP;
-        if (pkLiveness.isExpiring())
-            flags |= HAS_TTL;
+            if (pkLiveness.isExpiring())
+                flags |= HAS_TTL;
+        }
         if (!deletion.isLive())
         {
             flags |= HAS_DELETION;
-            if (deletion.isShadowable())
-                extendedFlags |= HAS_SHADOWABLE_DELETION;
         }
         if (hasComplexDeletion)
             flags |= HAS_COMPLEX_DELETION;
@@ -201,6 +206,108 @@ public class UnfilteredSerializer
         }
     }
 
+    private long serializeRowLivenessSize(LivenessInfo pkLiveness, SerializationHeader header)
+    {
+        long size = 0;
+        if (!pkLiveness.isEmpty())
+        {
+            size += header.timestampSerializedSize(pkLiveness.timestamp());
+            if (pkLiveness.isExpiring())
+            {
+                size += header.ttlSerializedSize(pkLiveness.ttl());
+                size += header.localDeletionTimeSerializedSize(pkLiveness.localExpirationTime());
+            }
+        }
+        return size;
+    }
+
+    private long serializeRowDeletionSize(DeletionTime deletion, SerializationHeader header)
+    {
+        int size = 0;
+        if (deletion.isLive())
+            return size;
+        size += header.deletionTimeSerializedSize(deletion);
+        return size;
+    }
+
+    private void serializeRowLiveness(LivenessInfo pkLiveness,
+                                      SerializationHeader header,
+                                      DataOutputPlus out,
+                                      int flags) throws IOException
+    {
+        if ((flags & HAS_TIMESTAMP) != 0)
+        {
+            header.writeTimestamp(pkLiveness.timestamp(), out);
+            if ((flags & HAS_TTL) != 0)
+            {
+                header.writeTTL(pkLiveness.ttl(), out);
+                header.writeLocalDeletionTime(pkLiveness.localExpirationTime(), out);
+            }
+        }
+    }
+
+    private void serializeRowDeletion(DeletionTime deletion,
+                                      SerializationHeader header,
+                                      DataOutputPlus out) throws IOException
+    {
+        if (deletion.isLive())
+            return;
+        header.writeDeletionTime(deletion, out);
+    }
+
+    private void serializeRowVirtualCells(VirtualCells virtualCells,
+                                          SerializationHeader header,
+                                          DataOutputPlus out) throws IOException
+    {
+        if (!virtualCells.isEmpty())
+        {
+            VirtualCells.serializer.serialize(virtualCells, out, header);
+        }
+    }
+
+    private VirtualCells deserializeRowVirtualCells(SerializationHeader header,
+                                                    SerializationHelper helper,
+                                                    DataInputPlus in,
+                                                    int extendedFlags) throws IOException
+    {
+        if ((extendedFlags & HAS_ROW_VIRTUAL_CELLS) != 0)
+        {
+            return VirtualCells.serializer.deserialize(in, header, helper);
+        }
+        return VirtualCells.EMPTY;
+    }
+
+
+    private LivenessInfo deserializeRowLiveness(SerializationHeader header,
+                                                DataInputPlus in,
+                                                int flags,
+                                                int extendedFlags) throws IOException
+    {
+
+        boolean hasTimestamp = (flags & HAS_TIMESTAMP) != 0;
+        boolean hasTTL = (flags & HAS_TTL) != 0;
+        LivenessInfo rowLiveness = LivenessInfo.EMPTY;
+        if (hasTimestamp)
+        {
+            long timestamp = header.readTimestamp(in);
+            int ttl = hasTTL ? header.readTTL(in) : LivenessInfo.NO_TTL;
+            int localDeletionTime = hasTTL ? header.readLocalDeletionTime(in) : LivenessInfo.NO_EXPIRATION_TIME;
+            rowLiveness = LivenessInfo.withExpirationTime(timestamp, ttl, localDeletionTime);
+        }
+        return rowLiveness;
+    }
+
+    private DeletionTime deserializeRowDeletion(SerializationHeader header,
+                                            DataInputPlus in,
+                                            int flags,
+                                            int extendedFlags) throws IOException
+    {
+        boolean hasDeletion = (flags & HAS_DELETION) != 0;
+        if (!hasDeletion)
+            return DeletionTime.LIVE;
+        return header.readDeletionTime(in);
+    }
+
     @Inline
     private void serializeRowBody(Row row, int flags, SerializationHeader header, DataOutputPlus out)
     throws IOException
@@ -208,18 +315,12 @@ public class UnfilteredSerializer
         boolean isStatic = row.isStatic();
 
         Columns headerColumns = header.columns(isStatic);
+        VirtualCells virtualCells = row.virtualCells();
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
-        Row.Deletion deletion = row.deletion();
-
-        if ((flags & HAS_TIMESTAMP) != 0)
-            header.writeTimestamp(pkLiveness.timestamp(), out);
-        if ((flags & HAS_TTL) != 0)
-        {
-            header.writeTTL(pkLiveness.ttl(), out);
-            header.writeLocalDeletionTime(pkLiveness.localExpirationTime(), out);
-        }
-        if ((flags & HAS_DELETION) != 0)
-            header.writeDeletionTime(deletion.time(), out);
+        DeletionTime deletion = row.deletion();
+        serializeRowVirtualCells(virtualCells, header, out);
+        serializeRowLiveness(pkLiveness, header, out, flags);
+        serializeRowDeletion(deletion, header, out);
 
         if ((flags & HAS_ALL_COLUMNS) == 0)
             Columns.serializer.serializeSubset(Collections2.transform(row, ColumnData::column), headerColumns, out);
@@ -329,20 +430,15 @@ public class UnfilteredSerializer
 
         boolean isStatic = row.isStatic();
         Columns headerColumns = header.columns(isStatic);
+        VirtualCells virtualCells = row.virtualCells();
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
-        Row.Deletion deletion = row.deletion();
+        DeletionTime deletion = row.deletion();
         boolean hasComplexDeletion = row.hasComplexDeletion();
         boolean hasAllColumns = (row.size() == headerColumns.size());
 
-        if (!pkLiveness.isEmpty())
-            size += header.timestampSerializedSize(pkLiveness.timestamp());
-        if (pkLiveness.isExpiring())
-        {
-            size += header.ttlSerializedSize(pkLiveness.ttl());
-            size += header.localDeletionTimeSerializedSize(pkLiveness.localExpirationTime());
-        }
-        if (!deletion.isLive())
-            size += header.deletionTimeSerializedSize(deletion.time());
+        size += VirtualCells.serializer.serializedSize(virtualCells, header);
+        size += serializeRowLivenessSize(pkLiveness, header);
+        size += serializeRowDeletionSize(deletion, header);
 
         if (!hasAllColumns)
             size += Columns.serializer.serializedSubsetSize(Collections2.transform(row, ColumnData::column), header.columns(isStatic));
@@ -498,25 +594,14 @@ public class UnfilteredSerializer
                 if ((flags & HAS_DELETION) != 0)
                 {
                     assert header.isForSSTable();
-                    boolean hasTimestamp = (flags & HAS_TIMESTAMP) != 0;
-                    boolean hasTTL = (flags & HAS_TTL) != 0;
-                    boolean deletionIsShadowable = (extendedFlags & HAS_SHADOWABLE_DELETION) != 0;
                     Clustering clustering = Clustering.serializer.deserialize(in, helper.version, header.clusteringTypes());
                     long nextPosition = in.readUnsignedVInt() + in.getFilePointer();
                     in.readUnsignedVInt(); // skip previous unfiltered size
-                    if (hasTimestamp)
-                    {
-                        header.readTimestamp(in);
-                        if (hasTTL)
-                        {
-                            header.readTTL(in);
-                            header.readLocalDeletionTime(in);
-                        }
-                    }
-
-                    Deletion deletion = new Row.Deletion(header.readDeletionTime(in), deletionIsShadowable);
+                    VirtualCells virtualCells = deserializeRowVirtualCells(header, helper, in, extendedFlags);
+                    deserializeRowLiveness(header, in, flags, extendedFlags);
+                    DeletionTime deletion = deserializeRowDeletion(header, in, flags, extendedFlags);
                     in.seek(nextPosition);
-                    return BTreeRow.emptyDeletedRow(clustering, deletion);
+                    return BTreeRow.emptyDeletedRow(clustering, deletion, virtualCells);
                 }
                 else
                 {
@@ -565,10 +650,6 @@ public class UnfilteredSerializer
         try
         {
             boolean isStatic = isStatic(extendedFlags);
-            boolean hasTimestamp = (flags & HAS_TIMESTAMP) != 0;
-            boolean hasTTL = (flags & HAS_TTL) != 0;
-            boolean hasDeletion = (flags & HAS_DELETION) != 0;
-            boolean deletionIsShadowable = (extendedFlags & HAS_SHADOWABLE_DELETION) != 0;
             boolean hasComplexDeletion = (flags & HAS_COMPLEX_DELETION) != 0;
             boolean hasAllColumns = (flags & HAS_ALL_COLUMNS) != 0;
             Columns headerColumns = header.columns(isStatic);
@@ -578,18 +659,12 @@ public class UnfilteredSerializer
                 in.readUnsignedVInt(); // Skip row size
                 in.readUnsignedVInt(); // previous unfiltered size
             }
-
-            LivenessInfo rowLiveness = LivenessInfo.EMPTY;
-            if (hasTimestamp)
-            {
-                long timestamp = header.readTimestamp(in);
-                int ttl = hasTTL ? header.readTTL(in) : LivenessInfo.NO_TTL;
-                int localDeletionTime = hasTTL ? header.readLocalDeletionTime(in) : LivenessInfo.NO_EXPIRATION_TIME;
-                rowLiveness = LivenessInfo.withExpirationTime(timestamp, ttl, localDeletionTime);
-            }
-
+            VirtualCells virtualCells = deserializeRowVirtualCells(header, helper, in, extendedFlags);
+            builder.addVirtualCells(virtualCells);
+            LivenessInfo rowLiveness = deserializeRowLiveness(header, in, flags, extendedFlags);
             builder.addPrimaryKeyLivenessInfo(rowLiveness);
-            builder.addRowDeletion(hasDeletion ? new Row.Deletion(header.readDeletionTime(in), deletionIsShadowable) : Row.Deletion.LIVE);
+            DeletionTime deletion = deserializeRowDeletion(header, in, flags, extendedFlags);
+            builder.addRowDeletion(deletion);
 
             Columns columns = hasAllColumns ? headerColumns : Columns.serializer.deserializeSubset(headerColumns, in);
 
@@ -734,6 +809,6 @@ public class UnfilteredSerializer
 
     public static boolean hasExtendedFlags(Row row)
     {
-        return row.isStatic() || row.deletion().isShadowable();
+        return row.isStatic() || !row.virtualCells().isEmpty();
     }
 }

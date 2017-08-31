@@ -50,7 +50,8 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
     {
         if (primaryKeyLivenessInfo().isLive(nowInSec))
             return true;
-
+        if (virtualCells().shouldWipeRow(nowInSec))
+            return false;
         return Iterables.any(cells(), cell -> cell.isLive(nowInSec));
     }
 
@@ -66,6 +67,7 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
 
         deletion().digest(digest);
         primaryKeyLivenessInfo().digest(digest);
+        virtualCells().digest(digest);
 
         for (ColumnData cd : this)
             cd.digest(digest);
@@ -82,7 +84,7 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
         }
 
         primaryKeyLivenessInfo().validate();
-        if (deletion().time().localDeletionTime() < 0)
+        if (deletion().localDeletionTime() < 0)
             throw new MarshalException("A local deletion time should not be negative");
 
         for (ColumnData cd : this)

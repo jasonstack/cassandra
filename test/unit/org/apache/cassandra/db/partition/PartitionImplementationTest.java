@@ -45,7 +45,6 @@ import org.apache.cassandra.db.partitions.AbstractBTreePartition;
 import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.rows.*;
-import org.apache.cassandra.db.rows.Row.Deletion;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -459,7 +458,7 @@ public class PartitionImplementationTest
                 if (!rt.isClose(false))
                     return row;
                 DeletionTime delTime = rt.closeDeletionTime(false);
-                return row == null ? BTreeRow.emptyDeletedRow(cl, Deletion.regular(delTime)) : row.filter(ColumnFilter.all(metadata), delTime, true, metadata);
+                return row == null ? BTreeRow.emptyDeletedRow(cl, delTime) : row.filter(ColumnFilter.all(metadata), delTime, true, metadata);
             }
         return row;
     }

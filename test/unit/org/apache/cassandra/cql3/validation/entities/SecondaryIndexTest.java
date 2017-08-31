@@ -965,12 +965,12 @@ public class SecondaryIndexTest extends CQLTester
 
         // check the existing row from the update call
         assertTrue(existingRow.deletion().isLive());
-        assertEquals(DeletionTime.LIVE, existingRow.deletion().time());
+        assertEquals(DeletionTime.LIVE, existingRow.deletion());
         assertEquals(1L, existingRow.primaryKeyLivenessInfo().timestamp());
 
         // check the new row from the update call
         assertFalse(newRow.deletion().isLive());
-        assertEquals(2L, newRow.deletion().time().markedForDeleteAt());
+        assertEquals(2L, newRow.deletion().markedForDeleteAt());
         assertFalse(newRow.cells().iterator().hasNext());
 
         // delete the same row again
@@ -982,12 +982,12 @@ public class SecondaryIndexTest extends CQLTester
 
         // check the new row from the update call
         assertFalse(existingRow.deletion().isLive());
-        assertEquals(2L, existingRow.deletion().time().markedForDeleteAt());
+        assertEquals(2L, existingRow.deletion().markedForDeleteAt());
         assertFalse(existingRow.cells().iterator().hasNext());
 
         // check the new row from the update call
         assertFalse(newRow.deletion().isLive());
-        assertEquals(3L, newRow.deletion().time().markedForDeleteAt());
+        assertEquals(3L, newRow.deletion().markedForDeleteAt());
         assertFalse(newRow.cells().iterator().hasNext());
     }
 

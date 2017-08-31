@@ -115,15 +115,6 @@ public abstract class Cell extends ColumnData
     public abstract boolean isExpiring();
 
     /**
-     * Whether the cell is live or not given the current time.
-     *
-     * @param nowInSec the current time in seconds. This is used to
-     * decide if an expiring cell is expired or live.
-     * @return whether the cell is live or not at {@code nowInSec}.
-     */
-    public abstract boolean isLive(int nowInSec);
-
-    /**
      * For cells belonging to complex types (non-frozen collection and UDT), the
      * path to the cell.
      *

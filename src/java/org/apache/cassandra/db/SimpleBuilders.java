@@ -401,7 +401,7 @@ public abstract class SimpleBuilders
         public Row.SimpleBuilder delete()
         {
             assert !initiated : "If called, delete() should be called before any other column value addition";
-            builder.addRowDeletion(Row.Deletion.regular(new DeletionTime(timestamp, nowInSec)));
+            builder.addRowDeletion(new DeletionTime(timestamp, nowInSec));
             return this;
         }
 
