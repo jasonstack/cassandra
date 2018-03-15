@@ -99,6 +99,41 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
     }
 
     @Test
+    public void emptyPartitionDeletionTest() throws Throwable
+    {
+        // create cell tombstone, range tombstone, partition deletion
+        createTable("CREATE TABLE %s (pk int, ck1 int, ck2 int, v1 int, v2 int, PRIMARY KEY (pk, ck1, ck2))");
+        // partition deletion
+        execute("DELETE FROM %s USING TIMESTAMP 160 WHERE pk=1");
+
+        // flush and generate 1 sstable
+        ColumnFamilyStore cfs = Keyspace.open(keyspace()).getColumnFamilyStore(currentTable());
+        cfs.forceBlockingFlush();
+        cfs.disableAutoCompaction();
+        cfs.forceMajorCompaction();
+
+        assertEquals(1, cfs.getLiveSSTables().size());
+        SSTableReader reader = cfs.getLiveSSTables().iterator().next();
+
+        try (ISSTableScanner scanner = reader.getScanner();
+                CloseableIterator<UnfilteredRowIterator> throttled = ThrottledUnfilteredIterator.throttle(scanner, 100))
+        {
+            assertTrue(throttled.hasNext());
+            UnfilteredRowIterator iterator = throttled.next();
+            assertFalse(throttled.hasNext());
+            assertFalse(iterator.hasNext());
+            assertEquals(iterator.partitionLevelDeletion().markedForDeleteAt(), 160);
+        }
+
+        // test opt out
+        try (ISSTableScanner scanner = reader.getScanner();
+                CloseableIterator<UnfilteredRowIterator> throttled = ThrottledUnfilteredIterator.throttle(scanner, 0))
+        {
+            assertEquals(scanner, throttled);
+        }
+    }
+
+    @Test
     public void complexThrottleWithTombstoneTest() throws Throwable
     {
         // create cell tombstone, range tombstone, partition deletion
