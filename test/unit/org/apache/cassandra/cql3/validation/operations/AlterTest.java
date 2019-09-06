@@ -41,6 +41,24 @@ import static org.junit.Assert.assertEquals;
 public class AlterTest extends CQLTester
 {
     @Test
+    public void testAddAndRemove() throws Throwable
+    {
+        createTable("CREATE TABLE %s (key int PRIMARY KEY, value int);");
+
+        for (int i = 0; i < 10; i++)
+        {
+            execute("INSERT INTO %s(key, value) VALUES(1, 1)");
+            assertRows(execute("SELECT * FROM %s"), row(1, 1));
+
+            execute("ALTER TABLE %s DROP value;");
+
+            execute("ALTER TABLE %s ADD value int");
+
+            assertRows(execute("SELECT * FROM %s"), row(1, null));
+        }
+    }
+
+    @Test
     public void testAddList() throws Throwable
     {
         createTable("CREATE TABLE %s (id text PRIMARY KEY, content text);");
