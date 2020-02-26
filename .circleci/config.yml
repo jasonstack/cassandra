@@ -6,7 +6,7 @@ jobs:
     resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 1
+    parallelism: 2
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -115,7 +115,6 @@ jobs:
           source ~/env3.6/bin/activate
           export PATH=$JAVA_HOME/bin:$PATH
           pip3 install --upgrade -r ~/cassandra-dtest/requirements.txt
-          pip3 uninstall -y cqlsh
           pip3 freeze
     - run:
         name: Determine Tests to Run (j8_with_vnodes)
@@ -1183,7 +1182,7 @@ jobs:
     resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 1
+    parallelism: 2
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1570,7 +1569,7 @@ jobs:
     resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 1
+    parallelism: 2
     steps:
     - attach_workspace:
         at: /home/cassandra
