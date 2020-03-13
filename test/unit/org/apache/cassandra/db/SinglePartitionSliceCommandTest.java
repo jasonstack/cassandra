@@ -29,6 +29,8 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Ints;
@@ -411,5 +413,38 @@ public class SinglePartitionSliceCommandTest
         assertQueryReturnsSingleRT("SELECT * FROM ks.legacy_mc_inaccurate_min_max WHERE k=100 AND c1=3 AND c2=2");
         assertQueryReturnsSingleRT("SELECT * FROM ks.legacy_mc_inaccurate_min_max WHERE k=100 AND c1=3 AND c2=2 AND c3=2"); // clustering names
 
+    }
+
+    @Test
+    public void testNamedQuerySkipsOlderSSTable()
+    {
+        String table = "named_query";
+        QueryProcessor.executeOnceInternal("CREATE TABLE ks." + table + " (k int, c1 int, c2 int, v int, primary key (k, c1, c2))");
+        TableMetadata metadata = Schema.instance.getTableMetadata("ks", table);
+        ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(metadata.id);
+
+        Function<Boolean, List<Unfiltered>> fetchUnfilters = flush ->
+        {
+            cfs.truncateBlocking();
+            QueryProcessor.executeOnceInternal("DELETE FROM ks." + table + " USING TIMESTAMP 10 WHERE k=1 and c1=1");
+            if (flush)
+                cfs.forceBlockingFlush();
+
+            QueryProcessor.executeOnceInternal("INSERT INTO ks." + table + "(k,c1,c2,v) VALUES(1,1,1,1) using timestamp 11");
+            if (flush)
+                cfs.forceBlockingFlush();
+
+            return getUnfilteredsFromSinglePartition("select * from ks."+table +" where k=1 and c1=1 and c2=1");
+        };
+
+        // when range tombstone with smaller ts and row with higher timestamp are placed in different sstables,
+        // sstable with live row will be queried first and then sstable containing range tombstone will be skipped by SPRC#reduceFilter
+        List<Unfiltered> sstableUnfiltered = fetchUnfilters.apply(true);
+        List<Unfiltered> memtableUnfiltereds = fetchUnfilters.apply(false);
+
+        String errorMessage = String.format("Expect unfiltereds %s, but got %s",
+                                            memtableUnfiltereds.stream().map(u -> u.toString(metadata, true)).collect(Collectors.toList()),
+                                            sstableUnfiltered.stream().map(u -> u.toString(metadata, true)).collect(Collectors.toList()));
+        assertEquals(errorMessage, memtableUnfiltereds, sstableUnfiltered);
     }
 }
