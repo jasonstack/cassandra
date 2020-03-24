@@ -27,6 +27,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.util.concurrent.Uninterruptibles;
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -70,6 +71,8 @@ public class LongBufferPoolTest
     private static final int STDEV_BUFFER_SIZE = 10 << 10; // picked to ensure exceeding buffer size is rare, but occurs
     private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
 
+    private static BufferPool bufferPool;
+
     static final class Debug implements BufferPool.Debug
     {
         static class DebugChunk
@@ -110,6 +113,13 @@ public class LongBufferPoolTest
     public static void setup() throws Exception
     {
         DatabaseDescriptor.daemonInitialization();
+        bufferPool = BufferPoolManager.permanent();
+    }
+
+    @AfterClass
+    public static void teardown()
+    {
+        bufferPool.unsafeReset();
     }
 
     @Test
@@ -244,11 +254,12 @@ public class LongBufferPoolTest
                                          DATE_FORMAT.format(new Date()),
                                          threadCount,
                                          TimeUnit.NANOSECONDS.toMinutes(duration)));
-        long prevPoolSize = BufferPool.getMemoryUsageThreshold();
+
+        long prevPoolSize = bufferPool.memoryUsageThreshold();
         logger.info("Overriding configured BufferPool.MEMORY_USAGE_THRESHOLD={} and enabling BufferPool.DEBUG", poolSize);
-        BufferPool.setMemoryUsageThreshold(poolSize);
+        bufferPool.unsafeSetMemoryUsageThreshold(poolSize);
         Debug debug = new Debug();
-        BufferPool.debug(debug);
+        bufferPool.debug(debug);
 
         TestEnvironment testEnv = new TestEnvironment(threadCount, duration, poolSize);
 
@@ -281,15 +292,15 @@ public class LongBufferPoolTest
             while ( null != (check = queue.poll()) )
             {
                 check.validate();
-                BufferPool.put(check.buffer);
+                bufferPool.put(check.buffer);
             }
         }
 
         assertEquals(0, testEnv.executorService.shutdownNow().size());
 
         logger.info("Reverting BufferPool.MEMORY_USAGE_THRESHOLD={}", prevPoolSize);
-        BufferPool.setMemoryUsageThreshold(prevPoolSize);
-        BufferPool.debug(null);
+        bufferPool.unsafeSetMemoryUsageThreshold(prevPoolSize);
+        bufferPool.debug(null);
 
         testEnv.assertCheckedThreadsSucceeded();
 
@@ -362,7 +373,7 @@ public class LongBufferPoolTest
                     else
                     {
                         check.validate();
-                        BufferPool.put(check.buffer);
+                        bufferPool.put(check.buffer);
                         totalSize -= size;
                     }
                 }
@@ -407,7 +418,7 @@ public class LongBufferPoolTest
                 while (checks.size() > 0)
                 {
                     BufferCheck check = checks.get(0);
-                    BufferPool.put(check.buffer);
+                    bufferPool.put(check.buffer);
                     checks.remove(check.listnode);
                 }
                 testEnv.latch.countDown();
@@ -419,13 +430,13 @@ public class LongBufferPoolTest
                 if (check == null)
                     return false;
                 check.validate();
-                BufferPool.put(check.buffer);
+                bufferPool.put(check.buffer);
                 return true;
             }
 
             BufferCheck allocate(int size)
             {
-                ByteBuffer buffer = BufferPool.get(size, BufferType.OFF_HEAP);
+                ByteBuffer buffer = bufferPool.get(size, BufferType.OFF_HEAP);
                 assertNotNull(buffer);
                 BufferCheck check = new BufferCheck(buffer, rand.nextLong());
                 assertEquals(size, buffer.capacity());
@@ -494,8 +505,9 @@ public class LongBufferPoolTest
                     return;
                 }
 
-                ByteBuffer buffer = rand.nextInt(4) < 1 ? BufferPool.tryGet(BufferPool.NORMAL_CHUNK_SIZE)
-                                                        : BufferPool.tryGet(BufferPool.TINY_ALLOCATION_LIMIT);
+                ByteBuffer buffer = rand.nextInt(4) < 1
+                        ? bufferPool.tryGet(BufferPool.NORMAL_CHUNK_SIZE)
+                        : bufferPool.tryGet(BufferPool.TINY_ALLOCATION_LIMIT);
                 if (buffer == null)
                 {
                     Thread.yield();
@@ -505,7 +517,7 @@ public class LongBufferPoolTest
                 // 50/50 chance of returning the buffer from the producer thread, or
                 // pass it on to the consumer.
                 if (rand.nextBoolean())
-                    BufferPool.put(buffer);
+                    bufferPool.put(buffer);
                 else
                     burn.add(buffer);
 
@@ -526,7 +538,7 @@ public class LongBufferPoolTest
                     Thread.yield();
                     return;
                 }
-                BufferPool.put(buffer);
+                bufferPool.put(buffer);
             }
             void cleanup()
             {
@@ -562,7 +574,7 @@ public class LongBufferPoolTest
             {
                 logger.error("Got exception {}, current chunk {}",
                              ex.getMessage(),
-                             BufferPool.unsafeCurrentChunk());
+                             bufferPool.unsafeCurrentChunk());
                 ex.printStackTrace();
                 return false;
             }
@@ -570,7 +582,7 @@ public class LongBufferPoolTest
             {
                 logger.error("Got throwable {}, current chunk {}",
                              tr.getMessage(),
-                             BufferPool.unsafeCurrentChunk());
+                             bufferPool.unsafeCurrentChunk());
                 tr.printStackTrace();
                 return false;
             }

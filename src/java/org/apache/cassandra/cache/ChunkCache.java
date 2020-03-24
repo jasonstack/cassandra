@@ -34,6 +34,7 @@ import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.util.*;
 import org.apache.cassandra.metrics.ChunkCacheMetrics;
 import org.apache.cassandra.utils.memory.BufferPool;
+import org.apache.cassandra.utils.memory.BufferPoolManager;
 
 public class ChunkCache
         implements CacheLoader<ChunkCache.Key, ChunkCache.Buffer>, RemovalListener<ChunkCache.Key, ChunkCache.Buffer>, CacheSize
@@ -44,6 +45,8 @@ public class ChunkCache
 
     private static boolean enabled = cacheSize > 0;
     public static final ChunkCache instance = enabled ? new ChunkCache() : null;
+
+    private static final BufferPool bufferPool = BufferPoolManager.permanent();
 
     private final LoadingCache<Key, Buffer> cache;
     public final ChunkCacheMetrics metrics;
@@ -130,7 +133,7 @@ public class ChunkCache
         public void release()
         {
             if (references.decrementAndGet() == 0)
-                BufferPool.put(buffer);
+                bufferPool.put(buffer);
         }
     }
 
@@ -149,7 +152,7 @@ public class ChunkCache
     @Override
     public Buffer load(Key key)
     {
-        ByteBuffer buffer = BufferPool.get(key.file.chunkSize(), key.file.preferredBufferType());
+        ByteBuffer buffer = bufferPool.get(key.file.chunkSize(), key.file.preferredBufferType());
         assert buffer != null;
         key.file.readChunk(key.position, buffer);
         return new Buffer(buffer, key.position);
