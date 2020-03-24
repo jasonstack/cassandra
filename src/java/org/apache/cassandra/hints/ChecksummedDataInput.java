@@ -29,6 +29,7 @@ import org.apache.cassandra.io.util.*;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.NativeLibrary;
 import org.apache.cassandra.utils.memory.BufferPool;
+import org.apache.cassandra.utils.memory.BufferPoolManager;
 
 /**
  * A {@link RandomAccessReader} wrapper that calculates the CRC in place.
@@ -43,6 +44,8 @@ import org.apache.cassandra.utils.memory.BufferPool;
  */
 public class ChecksummedDataInput extends RebufferingInputStream
 {
+    private static final BufferPool bufferPool = BufferPoolManager.longLived();
+
     private final CRC32 crc;
     private int crcPosition;
     private boolean crcUpdateDisabled;
@@ -55,7 +58,7 @@ public class ChecksummedDataInput extends RebufferingInputStream
 
     ChecksummedDataInput(ChannelProxy channel, BufferType bufferType)
     {
-        super(BufferPool.get(RandomAccessReader.DEFAULT_BUFFER_SIZE, bufferType));
+        super(bufferPool.get(RandomAccessReader.DEFAULT_BUFFER_SIZE, bufferType));
 
         crc = new CRC32();
         crcPosition = 0;
@@ -244,7 +247,7 @@ public class ChecksummedDataInput extends RebufferingInputStream
     @Override
     public void close()
     {
-        BufferPool.put(buffer);
+        bufferPool.put(buffer);
         channel.close();
     }
 

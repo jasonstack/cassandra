@@ -42,6 +42,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.memory.BufferPool;
+import org.apache.cassandra.utils.memory.BufferPoolManager;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
 import static java.lang.Math.*;
@@ -197,7 +198,7 @@ public class FramingTest
             cumulativeCompressedLength[i] = (i == 0 ? 0 : cumulativeCompressedLength[i - 1]) + buffer.readableBytes();
         }
 
-        ByteBuffer frames = BufferPool.getAtLeast(cumulativeCompressedLength[frameCount - 1], BufferType.OFF_HEAP);
+        ByteBuffer frames = BufferPoolManager.ephemeral().getAtLeast(cumulativeCompressedLength[frameCount - 1], BufferType.OFF_HEAP);
         for (ByteBuf buffer : compressed)
         {
             frames.put(buffer.internalNioBuffer(buffer.readerIndex(), buffer.readableBytes()));
@@ -412,7 +413,7 @@ public class FramingTest
             cumulativeLength[i] = (i == 0 ? 0 : cumulativeLength[i - 1]) + message.length;
         }
 
-        ByteBuffer frames = BufferPool.getAtLeast(cumulativeLength[messageCount - 1], BufferType.OFF_HEAP);
+        ByteBuffer frames = BufferPoolManager.ephemeral().getAtLeast(cumulativeLength[messageCount - 1], BufferType.OFF_HEAP);
         for (byte[] buffer : messages)
             frames.put(buffer);
         frames.flip();

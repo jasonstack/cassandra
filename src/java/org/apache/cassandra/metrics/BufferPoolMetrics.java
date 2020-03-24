@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,7 +25,8 @@ import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 
 public class BufferPoolMetrics
 {
-    private static final MetricNameFactory factory = new DefaultNameFactory("BufferPool");
+    /** Total number of hits */
+    public final Meter hits;
 
     /** Total number of misses */
     public final Meter misses;
@@ -33,16 +34,14 @@ public class BufferPoolMetrics
     /** Total size of buffer pools, in bytes */
     public final Gauge<Long> size;
 
-    public BufferPoolMetrics()
+    public BufferPoolMetrics(String name, BufferPool bufferPool)
     {
+        MetricNameFactory factory = new DefaultNameFactory("BufferPool", name);
+
+        hits = Metrics.meter(factory.createMetricName("Hits"));
+
         misses = Metrics.meter(factory.createMetricName("Misses"));
 
-        size = Metrics.register(factory.createMetricName("Size"), new Gauge<Long>()
-        {
-            public Long getValue()
-            {
-                return BufferPool.sizeInBytes();
-            }
-        });
+        size = Metrics.register(factory.createMetricName("Size"), bufferPool::sizeInBytes);
     }
 }
