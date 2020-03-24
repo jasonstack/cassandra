@@ -35,6 +35,7 @@ import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.net.SharedDefaultFileRegion.SharedFileChannel;
 import org.apache.cassandra.streaming.StreamManager.StreamRateLimiter;
 import org.apache.cassandra.utils.memory.BufferPool;
+import org.apache.cassandra.utils.memory.BufferPoolManager;
 
 import static java.lang.Math.min;
 
@@ -51,6 +52,8 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus
 {
     private static final Logger logger = LoggerFactory.getLogger(AsyncStreamingOutputPlus.class);
 
+    private static final BufferPool bufferPool = BufferPoolManager.ephemeral();
+
     final int defaultLowWaterMark;
     final int defaultHighWaterMark;
 
@@ -66,7 +69,7 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus
     private void allocateBuffer()
     {
         // this buffer is only used for small quantities of data
-        buffer = BufferPool.getAtLeast(8 << 10, BufferType.OFF_HEAP);
+        buffer = bufferPool.getAtLeast(8 << 10, BufferType.OFF_HEAP);
     }
 
     @Override
@@ -138,7 +141,7 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus
                     throw new IllegalStateException("Can only allocate one ByteBuffer");
                 limiter.acquire(size);
                 holder.promise = beginFlush(size, defaultLowWaterMark, defaultHighWaterMark);
-                holder.buffer = BufferPool.get(size, BufferType.OFF_HEAP);
+                holder.buffer = bufferPool.get(size, BufferType.OFF_HEAP);
                 return holder.buffer;
             });
         }
@@ -146,14 +149,14 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus
         {
             // we don't currently support cancelling the flush, but at this point we are recoverable if we want
             if (holder.buffer != null)
-                BufferPool.put(holder.buffer);
+                bufferPool.put(holder.buffer);
             if (holder.promise != null)
                 holder.promise.tryFailure(t);
             throw t;
         }
 
         ByteBuffer buffer = holder.buffer;
-        BufferPool.putUnusedPortion(buffer);
+        bufferPool.putUnusedPortion(buffer);
 
         int length = buffer.limit();
         channel.writeAndFlush(GlobalBufferPoolAllocator.wrap(buffer), holder.promise);
@@ -244,7 +247,7 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus
     {
         if (buffer != null)
         {
-            BufferPool.put(buffer);
+            bufferPool.put(buffer);
             buffer = null;
         }
     }

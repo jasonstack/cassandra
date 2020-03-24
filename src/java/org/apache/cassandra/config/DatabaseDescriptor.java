@@ -454,6 +454,9 @@ public class DatabaseDescriptor
         if (conf.concurrent_replicates != null)
             logger.warn("concurrent_replicates has been deprecated and should be removed from cassandra.yaml");
 
+        if (conf.network_cache_size_in_mb == null)
+            conf.network_cache_size_in_mb = Math.min(128, (int) (Runtime.getRuntime().maxMemory() / (4 * 1048576)));
+
         if (conf.file_cache_size_in_mb == null)
             conf.file_cache_size_in_mb = Math.min(512, (int) (Runtime.getRuntime().maxMemory() / (4 * 1048576)));
 
@@ -2431,6 +2434,17 @@ public class DatabaseDescriptor
         }
 
         return conf.file_cache_size_in_mb;
+    }
+
+    public static int getNetworkCacheSizeInMB()
+    {
+        if (conf.network_cache_size_in_mb == null)
+        {
+            // In client mode the value is not set.
+            assert DatabaseDescriptor.isClientInitialized();
+            return 0;
+        }
+        return conf.network_cache_size_in_mb;
     }
 
     public static boolean getFileCacheRoundUp()
