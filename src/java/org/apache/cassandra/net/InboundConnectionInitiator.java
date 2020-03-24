@@ -53,6 +53,7 @@ import org.apache.cassandra.net.OutboundConnectionSettings.Framing;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.streaming.async.StreamingInboundHandler;
 import org.apache.cassandra.utils.memory.BufferPool;
+import org.apache.cassandra.utils.memory.BufferPoolManager;
 
 import static java.lang.Math.*;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -391,7 +392,7 @@ public class InboundConnectionInitiator
                 from = InetAddressAndPort.getByAddressOverrideDefaults(address.getAddress(), address.getPort());
             }
 
-            BufferPool.setRecycleWhenFreeForCurrentThread(false);
+            BufferPoolManager.ephemeral().setRecycleWhenFreeForCurrentThread(false);
             pipeline.replace(this, "streamInbound", new StreamingInboundHandler(from, current_version, null));
         }
 
@@ -402,7 +403,7 @@ public class InboundConnectionInitiator
             // record the "true" endpoint, i.e. the one the peer is identified with, as opposed to the socket it connected over
             instance().versions.set(from, maxMessagingVersion);
 
-            BufferPool.setRecycleWhenFreeForCurrentThread(false);
+            BufferPoolManager.ephemeral().setRecycleWhenFreeForCurrentThread(false);
             BufferPoolAllocator allocator = GlobalBufferPoolAllocator.instance;
             if (initiate.type == ConnectionType.LARGE_MESSAGES)
             {
