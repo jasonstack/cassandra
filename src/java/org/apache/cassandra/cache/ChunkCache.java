@@ -130,7 +130,10 @@ public class ChunkCache
         public void release()
         {
             if (references.decrementAndGet() == 0)
-                BufferPool.put(buffer);
+            {
+                FileUtils.clean(buffer);
+                //BufferPool.put(buffer);
+            }
         }
     }
 
@@ -149,8 +152,9 @@ public class ChunkCache
     @Override
     public Buffer load(Key key)
     {
-        ByteBuffer buffer = BufferPool.get(key.file.chunkSize(), key.file.preferredBufferType());
-        assert buffer != null;
+        ByteBuffer buffer = ByteBuffer.allocateDirect(key.file.chunkSize());
+        //ByteBuffer buffer = BufferPool.get(key.file.chunkSize(), key.file.preferredBufferType());
+        //assert buffer != null;
         key.file.readChunk(key.position, buffer);
         return new Buffer(buffer, key.position);
     }
