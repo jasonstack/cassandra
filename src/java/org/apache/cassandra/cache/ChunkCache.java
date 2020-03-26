@@ -29,11 +29,12 @@ import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import com.github.benmanes.caffeine.cache.*;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.util.*;
 import org.apache.cassandra.metrics.ChunkCacheMetrics;
-import org.apache.cassandra.utils.memory.BufferPool;
+import org.apache.cassandra.utils.memory.MemoryUtil;
 
 public class ChunkCache
         implements CacheLoader<ChunkCache.Key, ChunkCache.Buffer>, RemovalListener<ChunkCache.Key, ChunkCache.Buffer>, CacheSize
@@ -130,7 +131,11 @@ public class ChunkCache
         public void release()
         {
             if (references.decrementAndGet() == 0)
-                BufferPool.put(buffer);
+            {
+                MemoryUtil.freeUnsafeDirect(buffer);
+                //FileUtils.clean(buffer);
+                //BufferPool.put(buffer);
+            }
         }
     }
 
@@ -149,8 +154,10 @@ public class ChunkCache
     @Override
     public Buffer load(Key key)
     {
-        ByteBuffer buffer = BufferPool.get(key.file.chunkSize(), key.file.preferredBufferType());
-        assert buffer != null;
+        ByteBuffer buffer = MemoryUtil.allocateUnsafeDirect(key.file.chunkSize());
+        //ByteBuffer buffer = ByteBuffer.allocateDirect(key.file.chunkSize());
+        //ByteBuffer buffer = BufferPool.get(key.file.chunkSize(), key.file.preferredBufferType());
+        //assert buffer != null;
         key.file.readChunk(key.position, buffer);
         return new Buffer(buffer, key.position);
     }

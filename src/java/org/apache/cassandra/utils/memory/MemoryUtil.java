@@ -88,6 +88,20 @@ public abstract class MemoryUtil
         return unsafe.getLong(buffer, DIRECT_BYTE_BUFFER_ADDRESS_OFFSET);
     }
 
+    public static void freeUnsafeDirect(ByteBuffer buffer)
+    {
+        long address = getAddress(buffer);
+        free(address);
+    }
+
+    public static ByteBuffer allocateUnsafeDirect(int size)
+    {
+        long address = unsafe.allocateMemory(size);
+        if (address == 0L)
+            throw new OutOfMemoryError("unable to allocate " + size + " in off-heap");
+        return getByteBuffer(address, size);
+    }
+
     public static long allocate(long size)
     {
         return Native.malloc(size);
