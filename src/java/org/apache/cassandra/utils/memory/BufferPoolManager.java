@@ -60,7 +60,7 @@ public class BufferPoolManager
      */
     public static BufferPool ephemeral()
     {
-        return EPHEMERAL;
+        return LONG_LIVED;
     }
 
     public static void shutdownLocalCleaner(long timeout, TimeUnit unit) throws TimeoutException, InterruptedException
