@@ -113,6 +113,9 @@ public class BufferPool
 
     public ByteBuffer get(int size, BufferType bufferType)
     {
+        if (name.equals("Ephemeral"))
+            throw new RuntimeException("LOL1");
+
         if (bufferType == BufferType.ON_HEAP)
             return allocate(size, bufferType);
         else
@@ -121,6 +124,9 @@ public class BufferPool
 
     public ByteBuffer getAtLeast(int size, BufferType bufferType)
     {
+        if (name.equals("Ephemeral"))
+            throw new RuntimeException("LOL2");
+
         if (bufferType == BufferType.ON_HEAP)
             return allocate(size, bufferType);
         else
@@ -649,6 +655,9 @@ public class BufferPool
 
         private ByteBuffer get(int size, boolean sizeIsLowerBound)
         {
+            if (name.equals("Ephemeral"))
+                throw new RuntimeException("### LOL3");
+
             ByteBuffer ret = tryGet(size, sizeIsLowerBound);
             if (ret != null)
             {
