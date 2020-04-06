@@ -628,7 +628,10 @@ public class BufferPool
         {
             ByteBuffer ret = tryGet(size, sizeIsLowerBound);
             if (ret != null)
+            {
+                metrics.hits.mark();
                 return ret;
+            }
 
             if (size > NORMAL_CHUNK_SIZE)
             {

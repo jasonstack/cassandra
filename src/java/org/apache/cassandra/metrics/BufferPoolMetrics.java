@@ -27,6 +27,9 @@ public class BufferPoolMetrics
 {
     private static final MetricNameFactory factory = new DefaultNameFactory("BufferPool");
 
+    /** Total number of hits */
+    public final Meter hits;
+
     /** Total number of misses */
     public final Meter misses;
 
@@ -35,6 +38,8 @@ public class BufferPoolMetrics
 
     public BufferPoolMetrics()
     {
+        hits = Metrics.meter(factory.createMetricName("Hits"));
+
         misses = Metrics.meter(factory.createMetricName("Misses"));
 
         size = Metrics.register(factory.createMetricName("Size"), new Gauge<Long>()
