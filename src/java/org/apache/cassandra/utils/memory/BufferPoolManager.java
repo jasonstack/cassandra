@@ -36,10 +36,10 @@ public class BufferPoolManager
     // TODO: this should not be using FileCacheSizeInMB
     @VisibleForTesting
     public static long FILE_MEMORY_USAGE_THRESHOLD = DatabaseDescriptor.getFileCacheSizeInMB() * 1024L * 1024L;
-    private static final BufferPool LONG_LIVED = new BufferPool("Permanent", FILE_MEMORY_USAGE_THRESHOLD);
+    private static final BufferPool LONG_LIVED = new BufferPool("Permanent", FILE_MEMORY_USAGE_THRESHOLD, true);
 
     public static long NETWORK_MEMORY_USAGE_THRESHOLD = DatabaseDescriptor.getNetworkCacheSizeInMB() * 1024L * 1024L;
-    private static final BufferPool EPHEMERAL = new BufferPool("Ephemeral", NETWORK_MEMORY_USAGE_THRESHOLD);
+    private static final BufferPool EPHEMERAL = new BufferPool("Ephemeral", NETWORK_MEMORY_USAGE_THRESHOLD, false);
 
     static
     {
