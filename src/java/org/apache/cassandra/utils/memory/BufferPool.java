@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -188,6 +189,7 @@ public class BufferPool
     {
         void registerNormal(Chunk chunk);
         void recycleNormal(Chunk oldVersion, Chunk newVersion);
+        void recyclePartial(Chunk chunk);
     }
 
     public void debug(Debug setDebug)
@@ -197,7 +199,20 @@ public class BufferPool
 
     interface Recycler
     {
+        /**
+         * Recycle a fully freed chunk
+         */
         void recycle(Chunk chunk);
+
+        /**
+         * @return true if chunk can be reused before fully freed.
+         */
+        boolean canRecyclePartially();
+
+        /**
+         * Recycle a partially freed chunk
+         */
+        void recyclePartially(Chunk chunk);
     }
 
     /**
@@ -214,6 +229,9 @@ public class BufferPool
 
         private final Queue<Chunk> macroChunks = new ConcurrentLinkedQueue<>();
         // TODO (future): it would be preferable to use a CLStack to improve cache occupancy; it would also be preferable to use "CoreLocal" storage
+        // It contains fully free chunk and partially freed chunk which is recirculated whenever chunk has free spaces to
+        // improve buffer utilization when chunk cache is holding a piece of buffering for long period.
+        // Note: fragmentation still exists, as holes are with different space.
         private final Queue<Chunk> chunks = new ConcurrentLinkedQueue<>();
         private final AtomicLong memoryUsage = new AtomicLong();
 
@@ -297,12 +315,27 @@ public class BufferPool
             return callerChunk;
         }
 
+        @Override
         public void recycle(Chunk chunk)
         {
             Chunk recycleAs = new Chunk(chunk);
             if (debug != null)
                 debug.recycleNormal(chunk, recycleAs);
             chunks.add(recycleAs);
+        }
+
+        @Override
+        public void recyclePartially(Chunk chunk)
+        {
+            if (debug != null)
+                debug.recyclePartial(chunk);
+            chunks.add(chunk);
+        }
+
+        @Override
+        public boolean canRecyclePartially()
+        {
+            return true;
         }
 
         public long sizeInBytes()
@@ -584,9 +617,7 @@ public class BufferPool
         {
             this.parent = () -> {
                 ByteBuffer buffer = parent.tryGetInternal(TINY_CHUNK_SIZE, false);
-                if (buffer == null)
-                    return null;
-                return new Chunk(parent, buffer);
+                return buffer == null ? null : new Chunk(parent, buffer);
             };
             this.tinyLimit = 0; // we only currently permit one layer of nesting (which brings us down to 32 byte allocations, so is plenty)
             this.reuseObjects = parent.reuseObjects; // we share the same ByteBuffer object reuse pool, as we both have the same exclusive access to it
@@ -619,21 +650,35 @@ public class BufferPool
             }
 
             // ask the free method to take exclusive ownership of the act of recycling
-            // if we are either: already not owned by anyone, or owned by ourselves
-            long free = chunk.free(buffer, owner == null || (owner == this && recycleWhenFree));
+            // if chunk is owned by ourselves
+            long free = chunk.free(buffer, owner == this && recycleWhenFree);
+            // free:
+            // *     0L: current pool must be the owner. we can fully recyle the chunk.
+            // *    -1L:
+            //          * for normal chunk:
+            //              a) if current pool is owner, we can continue using the chunk. do nothing.
+            //              b) if current pool is not owner, the chunk must have been partially recycled. do nothing
+            //          * for tiny chunk:
+            //              a) if current pool is owner, we can continue using the chunk. do nothing.
+            //              b) if current pool is not owner, recycle the tiny chunk back to parent chunk
+            // * others: parent will try to partially recycle the chunk
             if (free == 0L)
             {
+                assert owner == this;
                 // 0L => we own recycling responsibility, so must recycle;
-                // if we are the owner, we must remove the Chunk from our local queue
-                if (owner == this)
-                    remove(chunk);
+                // We must remove the Chunk from our local queue
+                remove(chunk);
                 chunk.recycle();
             }
-            else if (((free == -1L) && owner != this) && chunk.owner == null)
+            else if (free == -1L && owner == null && !chunk.recycler.canRecyclePartially())
             {
-                // although we try to take recycle ownership cheaply, it is not always possible to do so if the owner is racing to unset.
-                // we must also check after completely freeing if the owner has since been unset, and try to recycle
+                // recycle evicted tiny chunk
                 chunk.tryRecycle();
+            }
+            else if (chunk.recycler.canRecyclePartially() && chunk.status() == Chunk.Status.OFFLINE && chunk.setOnline())
+            {
+                // re-cirlate partially freed normal chunk to global list
+                chunk.partiallyRecycle();
             }
 
             if (owner == this)
@@ -689,16 +734,6 @@ public class BufferPool
             return allocate(size, BufferType.OFF_HEAP);
         }
 
-        public ByteBuffer tryGet(int size)
-        {
-            return tryGet(size, false);
-        }
-
-        public ByteBuffer tryGetAtLeast(int size)
-        {
-            return tryGet(size, true);
-        }
-
         private ByteBuffer tryGet(int size, boolean sizeIsLowerBound)
         {
             LocalPool pool = this;
@@ -727,7 +762,9 @@ public class BufferPool
             ByteBuffer reuse = this.reuseObjects.poll();
             ByteBuffer buffer = chunks.get(size, sizeIsLowerBound, reuse);
             if (buffer != null)
+            {
                 return buffer;
+            }
 
             // else ask the global pool
             Chunk chunk = addChunkFromParent();
@@ -743,12 +780,25 @@ public class BufferPool
             return null;
         }
 
-        // recycle
+        // recycle entire tiny chunk from tiny pool back to local pool
+        @Override
         public void recycle(Chunk chunk)
         {
             ByteBuffer buffer = chunk.slab;
             Chunk parentChunk = Chunk.getParentChunk(buffer);
             put(buffer, parentChunk);
+        }
+
+        @Override
+        public void recyclePartially(Chunk chunk)
+        {
+            throw new UnsupportedOperationException("Tiny chunk doesn't support partial recycle.");
+        }
+
+        @Override
+        public boolean canRecyclePartially()
+        {
+            return false;
         }
 
         private void remove(Chunk chunk)
@@ -777,6 +827,7 @@ public class BufferPool
                 if (tinyPool != null)
                     tinyPool.chunks.removeIf((child, parent) -> Chunk.getParentChunk(child.slab) == parent, evict);
                 evict.release();
+                evict.setOffline();
             }
         }
 
@@ -877,8 +928,16 @@ public class BufferPool
      */
     final static class Chunk
     {
+        enum Status
+        {
+            /** The slab is serving requests */
+            ONLINE,
+            /** The slab is not serving requests (for example because it is full) */
+            OFFLINE
+        }
+
         private final ByteBuffer slab;
-        private final long baseAddress;
+        final long baseAddress;
         private final int shift;
 
         private volatile long freeSlots;
@@ -889,6 +948,10 @@ public class BufferPool
         // if it has been unset the local pool has finished with it, and it may be recycled
         private volatile LocalPool owner;
         private final Recycler recycler;
+
+        private static final AtomicReferenceFieldUpdater<Chunk, Status> statusUpdater =
+                AtomicReferenceFieldUpdater.newUpdater(Chunk.class, Status.class, "status");
+        private volatile Status status = Status.ONLINE;
 
         @VisibleForTesting
         Object debugAttachment;
@@ -949,6 +1012,13 @@ public class BufferPool
         {
             assert freeSlots == 0L;
             recycler.recycle(this);
+        }
+
+        public void partiallyRecycle()
+        {
+            assert owner == null;
+            assert free() > 0;
+            recycler.recyclePartially(this);
         }
 
         /**
@@ -1194,6 +1264,12 @@ public class BufferPool
         }
 
         @VisibleForTesting
+        public LocalPool owner()
+        {
+            return this.owner;
+        }
+
+        @VisibleForTesting
         void unsafeFree()
         {
             Chunk parent = getParentChunk(slab);
@@ -1211,6 +1287,26 @@ public class BufferPool
                 chunk.freeSlots = 0L;
                 chunk.recycle();
             }
+        }
+
+        Status status()
+        {
+            return status;
+        }
+
+        private boolean setStatus(Status current, Status update)
+        {
+            return statusUpdater.compareAndSet(this, current, update);
+        }
+
+        boolean setOnline()
+        {
+            return setStatus(Status.OFFLINE, Status.ONLINE);
+        }
+
+        boolean setOffline()
+        {
+            return setStatus(Status.ONLINE, Status.OFFLINE);
         }
     }
 
@@ -1243,7 +1339,7 @@ public class BufferPool
         final L availableMemory = new L();
         for (Chunk chunk : globalPool.chunks)
         {
-            availableMemory.v += chunk.capacity();
+            availableMemory.v += chunk.free();
         }
         for (LocalPoolRef ref : localPoolReferences)
         {

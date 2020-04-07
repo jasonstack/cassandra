@@ -28,7 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.AfterClass;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -88,7 +87,6 @@ public class LongBufferPoolTest
         }
         long recycleRound = 1;
         final List<BufferPool.Chunk> normalChunks = new ArrayList<>();
-        final List<BufferPool.Chunk> tinyChunks = new ArrayList<>();
         public synchronized void registerNormal(BufferPool.Chunk chunk)
         {
             chunk.debugAttachment = new DebugChunk();
@@ -99,13 +97,14 @@ public class LongBufferPoolTest
             newVersion.debugAttachment = oldVersion.debugAttachment;
             DebugChunk.get(oldVersion).lastRecycled = recycleRound;
         }
+        public void recyclePartial(BufferPool.Chunk chunk)
+        {
+            DebugChunk.get(chunk).lastRecycled = recycleRound;
+        }
         public synchronized void check()
         {
-//            for (BufferPool.Chunk chunk : tinyChunks)
-//                assert DebugChunk.get(chunk).lastRecycled == recycleRound;
             for (BufferPool.Chunk chunk : normalChunks)
                 assert DebugChunk.get(chunk).lastRecycled == recycleRound;
-            tinyChunks.clear(); // they don't survive a recycleRound
             recycleRound++;
         }
     }
