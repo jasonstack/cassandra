@@ -425,7 +425,7 @@ public class BufferPoolTest
             ByteBuffer buffer = bufferPool.get(size, BufferType.OFF_HEAP);
             assertNotNull(buffer);
             assertEquals(size, buffer.capacity());
-            addresses.remove(MemoryUtil.getAddress(buffer));
+            assert addresses.remove(MemoryUtil.getAddress(buffer));
 
             buffers.add(buffer);
         }
@@ -864,6 +864,99 @@ public class BufferPoolTest
         assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.sizeInBytes());
         assertEquals(overflowBuffer.capacity(), bufferPool.usedSizeInBytes());
         assertEquals(overflowBuffer.capacity(), bufferPool.overflowMemoryInBytes());
+    }
+
+    @Test
+    public void testRecyclePartialFreeChunk()
+    {
+        // normal chunk size is 128kb
+        int halfNormalChunk = 64 * 1024; // 64kb, half of normal chunk
+        List<ByteBuffer> toRelease = new ArrayList<>();
+
+        // allocate three buffers on different chunks
+        ByteBuffer buffer0 = bufferPool.get(halfNormalChunk, BufferType.OFF_HEAP);
+        BufferPool.Chunk chunk0 = BufferPool.Chunk.getParentChunk(buffer0);
+        assertFalse(chunk0.isFree());
+        allocate(1, halfNormalChunk, toRelease); // allocate remaining buffers in the chunk
+
+        ByteBuffer buffer1 = bufferPool.get(halfNormalChunk, BufferType.OFF_HEAP);
+        BufferPool.Chunk chunk1 = BufferPool.Chunk.getParentChunk(buffer1);
+        assertFalse(chunk1.isFree());
+        assertNotEquals(chunk0, chunk1);
+        allocate(1, halfNormalChunk, toRelease); // allocate remaining buffers in the chunk
+
+        ByteBuffer buffer2 = bufferPool.get(halfNormalChunk, BufferType.OFF_HEAP);
+        BufferPool.Chunk chunk2 = BufferPool.Chunk.getParentChunk(buffer2);
+        assertFalse(chunk2.isFree());
+        assertNotEquals(chunk0, chunk2);
+        assertNotEquals(chunk1, chunk2);
+        allocate(1, halfNormalChunk, toRelease); // allocate remaining buffers in the chunk
+
+        // now all 3 chunks in local pool is full, allocate one more buffer to evict chunk2
+        ByteBuffer buffer3 = bufferPool.get(halfNormalChunk, BufferType.OFF_HEAP);
+        BufferPool.Chunk chunk3 = BufferPool.Chunk.getParentChunk(buffer3);
+        assertNotEquals(chunk0, chunk3);
+        assertNotEquals(chunk1, chunk3);
+        assertNotEquals(chunk2, chunk3);
+
+        // verify chunk2 got evicted, it doesn't have a owner
+        assertNotNull(chunk0.owner());
+        assertEquals(BufferPool.Chunk.Status.IN_USE, chunk0.status());
+        assertNotNull(chunk1.owner());
+        assertEquals(BufferPool.Chunk.Status.IN_USE, chunk1.status());
+        assertNull(chunk2.owner());
+        assertEquals(BufferPool.Chunk.Status.EVICTED, chunk2.status());
+
+        // release half buffers for chunk0/1/2
+        release(toRelease);
+
+        // try to recirculate chunk2 and verify freed space
+        assertFalse(bufferPool.globalPool().isFullyFreed(chunk2));
+        assertTrue(bufferPool.globalPool().isPartiallyFreed(chunk2));
+        assertEquals(BufferPool.Chunk.Status.IN_USE, chunk2.status());
+        assertEquals(halfNormalChunk, chunk2.free());
+        ByteBuffer buffer = chunk2.get(halfNormalChunk, false, null);
+        assertEquals(halfNormalChunk, buffer.capacity());
+    }
+
+    @Test
+    public void testTinyPool()
+    {
+        int total = 0;
+        final int size = BufferPool.TINY_ALLOCATION_UNIT;
+        final int allocationPerChunk = 64;
+
+        // occupy 3 tiny chunks
+        List<ByteBuffer> buffers0 = new ArrayList<>();
+        BufferPool.Chunk chunk0 = allocate(allocationPerChunk, size, buffers0);
+        assertTrue(chunk0.owner().isTinyPool());
+        List<ByteBuffer> buffers1 = new ArrayList<>();
+        BufferPool.Chunk chunk1 = allocate(allocationPerChunk, size, buffers1);
+        assertTrue(chunk1.owner().isTinyPool());
+        List<ByteBuffer> buffers2 = new ArrayList<>();
+        BufferPool.Chunk chunk2 = allocate(allocationPerChunk, size, buffers2);
+        assertTrue(chunk2.owner().isTinyPool());
+        total += 3 * BufferPool.TINY_CHUNK_SIZE;
+        assertEquals(total, bufferPool.usedSizeInBytes());
+
+        // allocate another tiny chunk.. chunk2 should be evicted
+        List<ByteBuffer> buffers3 = new ArrayList<>();
+        BufferPool.Chunk chunk3 = allocate(allocationPerChunk, size, buffers3);
+        assertTrue(chunk3.owner().isTinyPool());
+        total += BufferPool.TINY_CHUNK_SIZE;
+        assertEquals(total, bufferPool.usedSizeInBytes());
+
+        // verify chunk2 is full and evicted
+        assertEquals(0, chunk2.free());
+        assertNull(chunk2.owner());
+
+        // release chunk2's buffer
+        for (int i = 0; i < buffers2.size(); i++)
+        {
+            bufferPool.put(buffers2.get(i));
+            total -= buffers2.get(i).capacity();
+            assertEquals(total, bufferPool.usedSizeInBytes());
+        }
     }
 
     private BufferPool.Chunk allocate(int num, int bufferSize, List<ByteBuffer> buffers)

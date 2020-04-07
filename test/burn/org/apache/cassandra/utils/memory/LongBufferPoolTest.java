@@ -71,8 +71,6 @@ public class LongBufferPoolTest
     private static final int STDEV_BUFFER_SIZE = 10 << 10; // picked to ensure exceeding buffer size is rare, but occurs
     private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
 
-    private static BufferPool bufferPool;
-
     static final class Debug implements BufferPool.Debug
     {
         static class DebugChunk
@@ -87,7 +85,7 @@ public class LongBufferPoolTest
         }
         long recycleRound = 1;
         final List<BufferPool.Chunk> normalChunks = new ArrayList<>();
-        final List<BufferPool.Chunk> tinyChunks = new ArrayList<>();
+
         public synchronized void registerNormal(BufferPool.Chunk chunk)
         {
             chunk.debugAttachment = new DebugChunk();
@@ -98,13 +96,14 @@ public class LongBufferPoolTest
             newVersion.debugAttachment = oldVersion.debugAttachment;
             DebugChunk.get(oldVersion).lastRecycled = recycleRound;
         }
+        public void recyclePartial(BufferPool.Chunk chunk)
+        {
+            DebugChunk.get(chunk).lastRecycled = recycleRound;
+        }
         public synchronized void check()
         {
-//            for (BufferPool.Chunk chunk : tinyChunks)
-//                assert DebugChunk.get(chunk).lastRecycled == recycleRound;
             for (BufferPool.Chunk chunk : normalChunks)
                 assert DebugChunk.get(chunk).lastRecycled == recycleRound;
-            tinyChunks.clear(); // they don't survive a recycleRound
             recycleRound++;
         }
     }
@@ -113,19 +112,25 @@ public class LongBufferPoolTest
     public static void setup() throws Exception
     {
         DatabaseDescriptor.daemonInitialization();
-        bufferPool = BufferPoolManager.permanent();
     }
 
     @AfterClass
     public static void teardown()
     {
-        bufferPool.unsafeReset();
+        BufferPoolManager.permanent().unsafeReset();
+        BufferPoolManager.temporary().unsafeReset();
     }
 
     @Test
-    public void testAllocate() throws InterruptedException, ExecutionException
+    public void testPermantPoolAllocate() throws InterruptedException, ExecutionException
     {
-        testAllocate(Runtime.getRuntime().availableProcessors() * 2, TimeUnit.MINUTES.toNanos(2L), 16 << 20);
+        testAllocate(BufferPoolManager.permanent(), Runtime.getRuntime().availableProcessors() * 2, TimeUnit.MINUTES.toNanos(2L), 16 << 20);
+    }
+
+    @Test
+    public void testTemporaryPoolAllocate() throws InterruptedException, ExecutionException
+    {
+        testAllocate(BufferPoolManager.temporary(), Runtime.getRuntime().availableProcessors() * 2, TimeUnit.MINUTES.toNanos(2L), 16 << 20);
     }
 
     private static final class BufferCheck
@@ -248,13 +253,9 @@ public class LongBufferPoolTest
         }
     }
 
-    public void testAllocate(int threadCount, long duration, int poolSize) throws InterruptedException, ExecutionException
+    public void testAllocate(BufferPool bufferPool, int threadCount, long duration, int poolSize) throws InterruptedException, ExecutionException
     {
-        System.out.println(String.format("%s - testing %d threads for %dm",
-                                         DATE_FORMAT.format(new Date()),
-                                         threadCount,
-                                         TimeUnit.NANOSECONDS.toMinutes(duration)));
-
+        logger.info("{} - testing {} threads for {}m", DATE_FORMAT.format(new Date()), threadCount, TimeUnit.NANOSECONDS.toMinutes(duration));
         long prevPoolSize = bufferPool.memoryUsageThreshold();
         logger.info("Overriding configured BufferPool.MEMORY_USAGE_THRESHOLD={} and enabling BufferPool.DEBUG", poolSize);
         bufferPool.unsafeSetMemoryUsageThreshold(poolSize);
@@ -263,10 +264,10 @@ public class LongBufferPoolTest
 
         TestEnvironment testEnv = new TestEnvironment(threadCount, duration, poolSize);
 
-        startBurnerThreads(testEnv);
+        startBurnerThreads(bufferPool, testEnv);
 
         for (int threadIdx = 0; threadIdx < threadCount; threadIdx++)
-            testEnv.addCheckedFuture(startWorkerThread(testEnv, threadIdx));
+            testEnv.addCheckedFuture(startWorkerThread(bufferPool, testEnv, threadIdx));
 
         while (!testEnv.latch.await(10L, TimeUnit.SECONDS))
         {
@@ -304,13 +305,12 @@ public class LongBufferPoolTest
 
         testEnv.assertCheckedThreadsSucceeded();
 
-        System.out.println(String.format("%s - finished.",
-                                         DATE_FORMAT.format(new Date())));
+        logger.info("{} - finished.", DATE_FORMAT.format(new Date()));
     }
 
-    private Future<Boolean> startWorkerThread(TestEnvironment testEnv, final int threadIdx)
+    private Future<Boolean> startWorkerThread(BufferPool bufferPool, TestEnvironment testEnv, final int threadIdx)
     {
-        return testEnv.executorService.submit(new TestUntil(testEnv.until)
+        return testEnv.executorService.submit(new TestUntil(bufferPool, testEnv.until)
         {
             final int targetSize = threadIdx == 0 ? BufferPool.NORMAL_CHUNK_SIZE : testEnv.targetSizeQuanta * threadIdx;
             final SPSCQueue<BufferCheck> shareFrom = testEnv.sharedRecycle[threadIdx];
@@ -481,12 +481,12 @@ public class LongBufferPoolTest
         });
     }
 
-    private void startBurnerThreads(TestEnvironment testEnv)
+    private void startBurnerThreads(BufferPool bufferPool, TestEnvironment testEnv)
     {
         // setup some high churn allocate/deallocate, without any checking
         final SPSCQueue<ByteBuffer> burn = new SPSCQueue<>();
         final CountDownLatch doneAdd = new CountDownLatch(1);
-        testEnv.addCheckedFuture(testEnv.executorService.submit(new TestUntil(testEnv.until)
+        testEnv.addCheckedFuture(testEnv.executorService.submit(new TestUntil(bufferPool, testEnv.until)
         {
             int count = 0;
             final ThreadLocalRandom rand = ThreadLocalRandom.current();
@@ -528,7 +528,7 @@ public class LongBufferPoolTest
                 doneAdd.countDown();
             }
         }));
-        testEnv.threadResultFuture.add(testEnv.executorService.submit(new TestUntil(testEnv.until)
+        testEnv.threadResultFuture.add(testEnv.executorService.submit(new TestUntil(bufferPool, testEnv.until)
         {
             void testOne() throws Exception
             {
@@ -549,9 +549,11 @@ public class LongBufferPoolTest
 
     static abstract class TestUntil implements Callable<Boolean>
     {
+        final BufferPool bufferPool;
         final long until;
-        protected TestUntil(long until)
+        protected TestUntil(BufferPool bufferPool, long until)
         {
+            this.bufferPool = bufferPool;
             this.until = until;
         }
 
@@ -599,14 +601,14 @@ public class LongBufferPoolTest
         try
         {
             LongBufferPoolTest.setup();
-            new LongBufferPoolTest().testAllocate(Runtime.getRuntime().availableProcessors(),
+            new LongBufferPoolTest().testAllocate(BufferPoolManager.permanent(),
+                                                  Runtime.getRuntime().availableProcessors(),
                                                   TimeUnit.HOURS.toNanos(2L), 16 << 20);
             System.exit(0);
         }
         catch (Throwable tr)
         {
-            System.out.println(String.format("Test failed - %s", tr.getMessage()));
-            tr.printStackTrace();
+            logger.error("Test failed - {}", tr.getMessage(), tr);
             System.exit(1); // Force exit so that non-daemon threads like REQUEST-SCHEDULER do not hang the process on failure
         }
     }

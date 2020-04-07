@@ -37,13 +37,13 @@ public class BufferPoolManager
      * Used by chunk cache to store decompressed data and buffers may be held by chunk cache for arbitrary period.
      */
     private static final long FILE_MEMORY_USAGE_THRESHOLD = DatabaseDescriptor.getFileCacheSizeInMB() * 1024L * 1024L;
-    private static final BufferPool PERMANENT = new BufferPool("Permanent", FILE_MEMORY_USAGE_THRESHOLD);
+    private static final BufferPool PERMANENT = new BufferPool("Permanent", FILE_MEMORY_USAGE_THRESHOLD, true);
 
     /**
      * Used by client-server or inter-node requests, buffers should be released immediately after use.
      */
     private static final long TEMPORARY_MEMORY_USAGE_THRESHOLD = DatabaseDescriptor.getTemporaryCacheSizeInMB() * 1024L * 1024L;
-    private static final BufferPool TEMPORARY = new BufferPool("Temporary", TEMPORARY_MEMORY_USAGE_THRESHOLD);
+    private static final BufferPool TEMPORARY = new BufferPool("Temporary", TEMPORARY_MEMORY_USAGE_THRESHOLD, false);
 
     static
     {
