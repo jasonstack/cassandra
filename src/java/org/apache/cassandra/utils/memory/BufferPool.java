@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -77,6 +78,21 @@ public class BufferPool
     protected final BufferPoolMetrics metrics;
     private long memoryUsageThreshold;
     private String readableMemoryUsageThreshold; // FIXME
+
+    /**
+     * Size of unpooled buffer being allocated outside of buffer pool in bytes.
+     */
+    private final LongAdder overflowMemoryUsage = new LongAdder();
+
+    /**
+     * SIze of buffer being used in bytes, including pooled buffer and unpooled buffer.
+     */
+    private final LongAdder memoryInUse = new LongAdder();
+
+    /**
+     * Size of allocated buffer pool slabs in bytes
+     */
+    private final AtomicLong memoryAllocated = new AtomicLong();
 
     /** A global pool of chunks (page aligned buffers) */
     private final GlobalPool globalPool;
@@ -146,8 +162,9 @@ public class BufferPool
         return localPool.get().tryGet(size, true);
     }
 
-    private static ByteBuffer allocate(int size, BufferType bufferType)
+    private ByteBuffer allocate(int size, BufferType bufferType)
     {
+        updateOverflowMemoryUsage(size);
         return bufferType == BufferType.ON_HEAP
                ? ByteBuffer.allocate(size)
                : ByteBuffer.allocateDirect(size);
@@ -157,6 +174,8 @@ public class BufferPool
     {
         if (isExactlyDirect(buffer))
             localPool.get().put(buffer);
+        else
+            updateOverflowMemoryUsage(-buffer.capacity());
     }
 
     public void putUnusedPortion(ByteBuffer buffer)
@@ -169,6 +188,15 @@ public class BufferPool
             else
                 pool.put(buffer);
         }
+        else
+        {
+            updateOverflowMemoryUsage(-(buffer.capacity() - buffer.limit()));
+        }
+    }
+
+    private void updateOverflowMemoryUsage(int size)
+    {
+        overflowMemoryUsage.add(size);
     }
 
     public void setRecycleWhenFreeForCurrentThread(boolean recycleWhenFree)
@@ -176,11 +204,33 @@ public class BufferPool
         localPool.get().recycleWhenFree(recycleWhenFree);
     }
 
+    /**
+     * @return buffer size being allocated, including pooled buffers and unpooled buffers
+     */
     public long sizeInBytes()
     {
-        return globalPool.sizeInBytes();
+        return memoryAllocated.get() + overflowMemoryUsage.longValue();
     }
 
+    /**
+     * @return buffer size being used, including used pooled buffers and unpooled buffers
+     */
+    public long usedSizeInBytes()
+    {
+        return memoryInUse.longValue() + overflowMemoryUsage.longValue();
+    }
+
+    /**
+     * @return unpooled buffer size being allocated outside of buffer pool.
+     */
+    public long overflowMemoryInBytes()
+    {
+        return overflowMemoryUsage.longValue();
+    }
+
+    /**
+     * @return maximum pooled buffer size in bytes
+     */
     public long memoryUsageThreshold()
     {
         return memoryUsageThreshold;
@@ -225,7 +275,6 @@ public class BufferPool
         private final Queue<Chunk> macroChunks = new ConcurrentLinkedQueue<>();
         // TODO (future): it would be preferable to use a CLStack to improve cache occupancy; it would also be preferable to use "CoreLocal" storage
         private final Queue<Chunk> chunks = new ConcurrentLinkedQueue<>();
-        private final AtomicLong memoryUsage = new AtomicLong();
 
         /** Used in logging statements to lazily build a human-readable current memory usage. */
         private final Object readableMemoryUsage =
@@ -261,7 +310,7 @@ public class BufferPool
         {
             while (true)
             {
-                long cur = memoryUsage.get();
+                long cur = memoryAllocated.get();
                 if (cur + MACRO_CHUNK_SIZE > memoryUsageThreshold)
                 {
                     if (memoryUsageThreshold > 0)
@@ -271,7 +320,7 @@ public class BufferPool
                     }
                     return null;
                 }
-                if (memoryUsage.compareAndSet(cur, cur + MACRO_CHUNK_SIZE))
+                if (memoryAllocated.compareAndSet(cur, cur + MACRO_CHUNK_SIZE))
                     break;
             }
 
@@ -286,7 +335,7 @@ public class BufferPool
                 noSpamLogger.error("{} buffer pool failed to allocate chunk of {}, current size {} ({}). " +
                                    "Attempting to continue; buffers will be allocated in on-heap memory which can degrade performance. " +
                                    "Make sure direct memory size (-XX:MaxDirectMemorySize) is large enough to accommodate off-heap memtables and caches.",
-                                   READABLE_MACRO_CHUNK_SIZE, readableMemoryUsage, oom.getClass().getName());
+                                   name, READABLE_MACRO_CHUNK_SIZE, readableMemoryUsage, oom.getClass().getName());
                 return null;
             }
 
@@ -314,11 +363,6 @@ public class BufferPool
             chunks.add(recycleAs);
         }
 
-        public long sizeInBytes()
-        {
-            return memoryUsage.get();
-        }
-
         /** This is not thread safe and should only be used for unit testing. */
         @VisibleForTesting
         void unsafeFree()
@@ -328,8 +372,6 @@ public class BufferPool
 
             while (!macroChunks.isEmpty())
                 macroChunks.poll().unsafeFree();
-
-            memoryUsage.set(0);
         }
     }
 
@@ -612,13 +654,21 @@ public class BufferPool
         public void put(ByteBuffer buffer)
         {
             Chunk chunk = Chunk.getParentChunk(buffer);
+            int size = buffer.capacity();
+
             if (chunk == null)
+            {
                 FileUtils.clean(buffer);
+                updateOverflowMemoryUsage(-size);
+            }
             else
+            {
                 put(buffer, chunk);
+                memoryInUse.add(-size);
+            }
         }
 
-        public void put(ByteBuffer buffer, Chunk chunk)
+        private void put(ByteBuffer buffer, Chunk chunk)
         {
             LocalPool owner = chunk.owner;
             if (owner != null && owner == tinyPool)
@@ -656,10 +706,16 @@ public class BufferPool
         public void putUnusedPortion(ByteBuffer buffer)
         {
             Chunk chunk = Chunk.getParentChunk(buffer);
+            int size = buffer.capacity() - buffer.limit();
+
             if (chunk == null)
+            {
+                updateOverflowMemoryUsage(-size);
                 return;
+            }
 
             chunk.freeUnusedPortion(buffer);
+            memoryInUse.add(-size);
         }
 
         public ByteBuffer get(int size)
@@ -678,6 +734,7 @@ public class BufferPool
             if (ret != null)
             {
                 metrics.hits.mark();
+                memoryInUse.add(ret.capacity());
                 return ret;
             }
 
@@ -1240,22 +1297,6 @@ public class BufferPool
         awaitTermination(timeout, unit, of(localPoolCleaner));
     }
 
-    public long unsafeGetBytesInUse()
-    {
-        long totalMemory = globalPool.memoryUsage.get();
-        class L { long v; }
-        final L availableMemory = new L();
-        for (Chunk chunk : globalPool.chunks)
-        {
-            availableMemory.v += chunk.capacity();
-        }
-        for (LocalPoolRef ref : localPoolReferences)
-        {
-            ref.chunks.forEach(chunk -> availableMemory.v += chunk.free());
-        }
-        return totalMemory - availableMemory.v;
-    }
-
     @VisibleForTesting
     public BufferPoolMetrics metrics()
     {
@@ -1266,6 +1307,9 @@ public class BufferPool
     @VisibleForTesting
     public void unsafeReset()
     {
+        overflowMemoryUsage.reset();
+        memoryInUse.reset();
+        memoryAllocated.set(0);
         localPool.get().unsafeRecycle();
         globalPool.unsafeFree();
     }

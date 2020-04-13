@@ -66,6 +66,7 @@ public class BufferPoolTest
         assertNotNull(buffer);
         assertEquals(size, buffer.capacity());
         assertEquals(true, buffer.isDirect());
+        assertEquals(size, bufferPool.usedSizeInBytes());
 
         BufferPool.Chunk chunk = bufferPool.unsafeCurrentChunk();
         assertNotNull(chunk);
@@ -74,6 +75,7 @@ public class BufferPoolTest
         bufferPool.put(buffer);
         assertEquals(null, bufferPool.unsafeCurrentChunk());
         assertEquals(BufferPool.GlobalPool.MACRO_CHUNK_SIZE, bufferPool.sizeInBytes());
+        assertEquals(0, bufferPool.usedSizeInBytes());
     }
 
 
@@ -816,5 +818,65 @@ public class BufferPoolTest
         assertNotNull(buffer);
         assertEquals(sizes[0], buffer.capacity());
         bufferPool.put(buffer);
+    }
+
+    @Test
+    public void testOverflowAllocation()
+    {
+        bufferPool.unsafeSetMemoryUsageThreshold(BufferPool.GlobalPool.MACRO_CHUNK_SIZE);
+
+        int macroChunkSize = BufferPool.GlobalPool.MACRO_CHUNK_SIZE;
+        int allocationSize = BufferPool.NORMAL_CHUNK_SIZE;
+        int allocations = BufferPool.GlobalPool.MACRO_CHUNK_SIZE / allocationSize;
+
+        // occupy entire buffer pool
+        List<ByteBuffer> buffers = new ArrayList<>();
+        allocate(allocations, allocationSize, buffers);
+
+        assertEquals(macroChunkSize, bufferPool.sizeInBytes());
+        assertEquals(macroChunkSize, bufferPool.usedSizeInBytes());
+        assertEquals(0, bufferPool.overflowMemoryInBytes());
+
+        // allocate overflow due to pool exhaust
+        ByteBuffer overflowBuffer = bufferPool.get(BufferPool.NORMAL_ALLOCATION_UNIT, BufferType.OFF_HEAP);
+
+        assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.sizeInBytes());
+        assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.usedSizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.overflowMemoryInBytes());
+
+        // free all buffer
+        bufferPool.put(overflowBuffer);
+        release(buffers);
+
+        assertEquals(macroChunkSize, bufferPool.sizeInBytes());
+        assertEquals(0, bufferPool.usedSizeInBytes());
+        assertEquals(0, bufferPool.overflowMemoryInBytes());
+
+        // allocate overflow due to on-heap
+        overflowBuffer = bufferPool.get(BufferPool.NORMAL_ALLOCATION_UNIT, BufferType.ON_HEAP);
+        assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.sizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.usedSizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.overflowMemoryInBytes());
+        bufferPool.put(overflowBuffer);
+
+        // allocate overflow due to over allocation size
+        overflowBuffer = bufferPool.get(2 * BufferPool.NORMAL_CHUNK_SIZE, BufferType.ON_HEAP);
+        assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.sizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.usedSizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.overflowMemoryInBytes());
+    }
+
+    private BufferPool.Chunk allocate(int num, int bufferSize, List<ByteBuffer> buffers)
+    {
+        for (int i = 0; i < num; i++)
+            buffers.add(bufferPool.get(bufferSize, BufferType.OFF_HEAP));
+
+        return BufferPool.Chunk.getParentChunk(buffers.get(buffers.size() - 1));
+    }
+
+    private void release(List<ByteBuffer> toRelease)
+    {
+        for (ByteBuffer buffer : toRelease)
+            bufferPool.put(buffer);
     }
 }

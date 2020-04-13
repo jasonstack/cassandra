@@ -435,7 +435,7 @@ public class ConnectionBurnTest
                                         checkStoppedTo  .accept(endpoint, getConnections(endpoint, true ));
                                         checkStoppedFrom.accept(endpoint, getConnections(endpoint, false));
                                     }
-                                    long inUse = BufferPoolManager.temporary().unsafeGetBytesInUse();
+                                    long inUse = BufferPoolManager.temporary().usedSizeInBytes();
                                     if (inUse > 0)
                                     {
 //                                        try

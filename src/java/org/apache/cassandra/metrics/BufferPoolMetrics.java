@@ -31,8 +31,18 @@ public class BufferPoolMetrics
     /** Total number of misses */
     public final Meter misses;
 
-    /** Total size of buffer pools, in bytes */
+    /** Total size of buffer pools, in bytes, including overflow allocation */
     public final Gauge<Long> size;
+
+    /** Total size, in bytes, of active buffered being used from the pool currently + overflow */
+    public final Gauge<Long> usedSize;
+
+    /**
+     * Total size, in bytes, of direct or heap buffers allocated by the pool but not part of the pool
+     * either because they are too large to fit or because the pool has exceeded its maximum limit or because it's
+     * on-heap allocation.
+     */
+    public final Gauge<Long> overflowSize;
 
     public BufferPoolMetrics(String name, BufferPool bufferPool)
     {
@@ -41,6 +51,10 @@ public class BufferPoolMetrics
         hits = Metrics.meter(factory.createMetricName("Hits"));
 
         misses = Metrics.meter(factory.createMetricName("Misses"));
+
+        overflowSize = Metrics.register(factory.createMetricName("OverflowSize"), bufferPool::overflowMemoryInBytes);
+
+        usedSize = Metrics.register(factory.createMetricName("UsedSize"), bufferPool::usedSizeInBytes);
 
         size = Metrics.register(factory.createMetricName("Size"), bufferPool::sizeInBytes);
     }
