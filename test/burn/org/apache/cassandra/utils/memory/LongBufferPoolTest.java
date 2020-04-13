@@ -28,7 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import com.google.common.util.concurrent.Uninterruptibles;
-import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -100,7 +99,7 @@ public class LongBufferPoolTest
         {
             DebugChunk.get(chunk).lastRecycled = recycleRound;
         }
-        public synchronized void check()
+        public synchronized void check(BufferPool bufferPool)
         {
             for (BufferPool.Chunk chunk : normalChunks)
                 assert DebugChunk.get(chunk).lastRecycled == recycleRound;
@@ -113,13 +112,6 @@ public class LongBufferPoolTest
     public static void setup() throws Exception
     {
         DatabaseDescriptor.daemonInitialization();
-    }
-
-    @AfterClass
-    public static void teardown()
-    {
-        BufferPoolManager.longLived().unsafeReset();
-        BufferPoolManager.ephemeral().unsafeReset();
     }
 
     @Test
@@ -287,7 +279,7 @@ public class LongBufferPoolTest
                 for (AtomicBoolean freedMemory : testEnv.freedAllMemory)
                     allFreed = allFreed && freedMemory.getAndSet(false);
                 if (allFreed)
-                    debug.check();
+                    debug.check(bufferPool);
                 else
                     logger.info("All threads did not free all memory in this time slot - skipping buffer recycle check");
             }
@@ -306,6 +298,9 @@ public class LongBufferPoolTest
         // wait for all tasks are done before checking metrics
         while (!burnerThreadCompletion.await(10, TimeUnit.SECONDS))
             logger.info("Waiting for burner threads to finish...");
+
+        // all buffers are put back
+        assertEquals(0, bufferPool.usedSizeInBytes());
 
         Consumer<BufferPool.Chunk> assertFree = chunk -> assertTrue("FreeSlots=" + chunk.freeSlotCount(), chunk.isFree());
         bufferPool.forEachGlobalChunk(assertFree);

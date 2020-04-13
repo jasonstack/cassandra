@@ -29,6 +29,7 @@ import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.RandomAccessReader;
@@ -66,6 +67,7 @@ public class BufferPoolTest
         assertNotNull(buffer);
         assertEquals(size, buffer.capacity());
         assertEquals(true, buffer.isDirect());
+        assertEquals(size, bufferPool.usedSizeInBytes());
 
         BufferPool.Chunk chunk = bufferPool.unsafeCurrentChunk();
         assertNotNull(chunk);
@@ -74,6 +76,7 @@ public class BufferPoolTest
         bufferPool.put(buffer);
         assertEquals(null, bufferPool.unsafeCurrentChunk());
         assertEquals(BufferPool.GlobalPool.MACRO_CHUNK_SIZE, bufferPool.sizeInBytes());
+        assertEquals(0, bufferPool.usedSizeInBytes());
     }
 
 
@@ -819,6 +822,52 @@ public class BufferPoolTest
     }
 
     @Test
+    public void testOverflowAllocation()
+    {
+        bufferPool.unsafeSetMemoryUsageThreshold(BufferPool.GlobalPool.MACRO_CHUNK_SIZE);
+
+        int macroChunkSize = BufferPool.GlobalPool.MACRO_CHUNK_SIZE;
+        int allocationSize = BufferPool.NORMAL_CHUNK_SIZE;
+        int allocations = BufferPool.GlobalPool.MACRO_CHUNK_SIZE / allocationSize;
+
+        // occupy entire buffer pool
+        List<ByteBuffer> buffers = new ArrayList<>();
+        allocate(allocations, allocationSize, buffers);
+
+        assertEquals(macroChunkSize, bufferPool.sizeInBytes());
+        assertEquals(macroChunkSize, bufferPool.usedSizeInBytes());
+        assertEquals(0, bufferPool.overflowMemoryInBytes());
+
+        // allocate overflow due to pool exhaust
+        ByteBuffer overflowBuffer = bufferPool.get(BufferPool.NORMAL_ALLOCATION_UNIT, BufferType.OFF_HEAP);
+
+        assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.sizeInBytes());
+        assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.usedSizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.overflowMemoryInBytes());
+
+        // free all buffer
+        bufferPool.put(overflowBuffer);
+        release(buffers);
+
+        assertEquals(macroChunkSize, bufferPool.sizeInBytes());
+        assertEquals(0, bufferPool.usedSizeInBytes());
+        assertEquals(0, bufferPool.overflowMemoryInBytes());
+
+        // allocate overflow due to on-heap
+        overflowBuffer = bufferPool.get(BufferPool.NORMAL_ALLOCATION_UNIT, BufferType.ON_HEAP);
+        assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.sizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.usedSizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.overflowMemoryInBytes());
+        bufferPool.put(overflowBuffer);
+
+        // allocate overflow due to over allocation size
+        overflowBuffer = bufferPool.get(2 * BufferPool.NORMAL_CHUNK_SIZE, BufferType.ON_HEAP);
+        assertEquals(macroChunkSize + overflowBuffer.capacity(), bufferPool.sizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.usedSizeInBytes());
+        assertEquals(overflowBuffer.capacity(), bufferPool.overflowMemoryInBytes());
+    }
+
+    @Test
     public void testRecyclePartialFreeChunk()
     {
         // normal chunk size is 128kb
@@ -889,14 +938,14 @@ public class BufferPoolTest
         BufferPool.Chunk chunk2 = allocate(allocationPerChunk, size, buffers2);
         assertTrue(chunk2.owner().isTinyPool());
         total += 3 * BufferPool.TINY_CHUNK_SIZE;
-        assertEquals(total, bufferPool.unsafeGetBytesInUse());
+        assertEquals(total, bufferPool.usedSizeInBytes());
 
         // allocate another tiny chunk.. chunk2 should be evicted
         List<ByteBuffer> buffers3 = new ArrayList<>();
         BufferPool.Chunk chunk3 = allocate(allocationPerChunk, size, buffers3);
         assertTrue(chunk3.owner().isTinyPool());
         total += BufferPool.TINY_CHUNK_SIZE;
-        assertEquals(total, bufferPool.unsafeGetBytesInUse());
+        assertEquals(total, bufferPool.usedSizeInBytes());
 
         // verify chunk2 is full and evicted
         assertEquals(0, chunk2.free());
@@ -907,17 +956,8 @@ public class BufferPoolTest
         {
             bufferPool.put(buffers2.get(i));
 
-            if (i == buffers2.size() - 1)
-            {
-                // when tiny chunk is fully recycled, parent chunk free space is updated
-                total -= BufferPool.TINY_CHUNK_SIZE;
-                assertEquals(total, bufferPool.unsafeGetBytesInUse());
-            }
-            else
-            {
-                // before tiny chunk is fully recycled, parent normal chunk is occupied
-                assertEquals(total, bufferPool.unsafeGetBytesInUse());
-            }
+            total -= buffers2.get(i).capacity();
+            assertEquals(total, bufferPool.usedSizeInBytes());
         }
     }
 
