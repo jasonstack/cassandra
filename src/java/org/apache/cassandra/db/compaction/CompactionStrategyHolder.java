@@ -223,7 +223,7 @@ public class CompactionStrategyHolder extends AbstractStrategyHolder
                                                        boolean isTransient,
                                                        MetadataCollector collector,
                                                        SerializationHeader header,
-                                                       Collection<Index> indexes,
+                                                       Collection<Index.Group> indexeGroups,
                                                        LifecycleNewTracker lifecycleNewTracker)
     {
         if (isRepaired)
@@ -247,7 +247,7 @@ public class CompactionStrategyHolder extends AbstractStrategyHolder
                                                  isTransient,
                                                  collector,
                                                  header,
-                                                 indexes,
+                                                 indexeGroups,
                                                  lifecycleNewTracker);
     }
 

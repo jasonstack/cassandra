@@ -115,10 +115,10 @@ public class SimpleSSTableMultiWriter implements SSTableMultiWriter
                                             TableMetadataRef metadata,
                                             MetadataCollector metadataCollector,
                                             SerializationHeader header,
-                                            Collection<Index> indexes,
+                                            Collection<Index.Group> indexeGroups,
                                             LifecycleNewTracker lifecycleNewTracker)
     {
-        SSTableWriter writer = SSTableWriter.create(descriptor, keyCount, repairedAt, pendingRepair, isTransient, metadata, metadataCollector, header, indexes, lifecycleNewTracker);
+        SSTableWriter writer = SSTableWriter.create(descriptor, keyCount, repairedAt, pendingRepair, isTransient, metadata, metadataCollector, header, indexeGroups, lifecycleNewTracker);
         return new SimpleSSTableMultiWriter(writer, lifecycleNewTracker);
     }
 }
