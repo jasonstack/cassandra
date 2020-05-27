@@ -401,6 +401,17 @@ public interface Index
      */
     public long getEstimatedResultRows();
 
+    /**
+     * Check if current index is queryable based on the index status.
+     *
+     * @param status current status of the index
+     * @return true if index should be queryable, false if index should be non-queryable
+     */
+    default boolean isQueryable(Status status)
+    {
+        return true;
+    }
+
     /*
      * Input validation
      */
@@ -734,7 +745,7 @@ public interface Index
 
         /**
          * Return an estimate of the number of results this plan is expected to return for any given {@link ReadCommand}
-         * that it can be used to answer. Used by  {@link SecondaryIndexManager#getBestIndexFor(RowFilter)}
+         * that it can be used to answer. Used by  {@link SecondaryIndexManager#getBestIndexQueryPlanFor(RowFilter)}
          * to determine the {@link Group} with the most selective plan for a given {@link RowFilter}.
          * Additionally, this is also used by StorageProxy.estimateResultsPerRange to calculate the initial concurrency
          * factor for range requests
@@ -785,5 +796,17 @@ public interface Index
          * @return an Searcher with which to perform the supplied command
          */
         Searcher searcherFor(ReadCommand command);
+    }
+
+    /*
+     * Status of index used to determine queryability
+     */
+    enum Status
+    {
+        UNKNOWN,
+        FULL_REBUILD_STARTED,
+        BUILD_FAILED,
+        BUILD_SUCCEEDED,
+        DROPPED
     }
 }
