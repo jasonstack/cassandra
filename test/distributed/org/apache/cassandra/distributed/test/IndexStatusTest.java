@@ -165,7 +165,7 @@ public class IndexStatusTest extends TestBaseImpl
             // wait for gossip propagation
             Util.spinAssertEquals(status.toString(),
                                   () -> SecondaryIndexManager.getIndexStatus(peer, KEYSPACE, indexName).toString(),
-                                  30);
+                                  15);
         });
     }
 

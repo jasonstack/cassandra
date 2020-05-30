@@ -51,7 +51,6 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
-import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.statements.schema.IndexTarget;
@@ -87,6 +86,7 @@ import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.concurrent.Refs;
+import org.json.simple.JSONValue;
 
 import static org.apache.cassandra.utils.ExecutorUtils.awaitTermination;
 import static org.apache.cassandra.utils.ExecutorUtils.shutdown;
@@ -145,6 +145,8 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
     // store per-endpoint index status: the key of inner map is identifier "keyspace.index"
     public static final Map<InetAddressAndPort, Map<String, Index.Status>> peerIndexStatus = new ConcurrentHashMap<>();
+    // executes index status propagation task asynchronously to avoid potential deadlock on SIM
+    private static final ExecutorService statusPropagationExecutor = Executors.newSingleThreadExecutor();
 
     /**
      * All registered indexes.
@@ -1756,7 +1758,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             if (endpoint.equals(FBUtilities.getBroadcastAddressAndPort()))
                 return;
 
-            Map<String, String> peerStatus = FBUtilities.fromJsonMap(versionedValue.value);
+            Map<String, String> peerStatus = (Map<String, String>) JSONValue.parseWithException(versionedValue.value);
             Map<String, Index.Status> indexStatus = new ConcurrentHashMap<>();
 
             for (Map.Entry<String, String> e : peerStatus.entrySet())
@@ -1770,7 +1772,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         }
         catch (Throwable e)
         {
-            logger.warn("Unable to parse index status: {}", e.getMessage(), e);
+            logger.warn("Unable to parse index status: {}", e.getMessage());
         }
     }
 
@@ -1779,26 +1781,27 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     {
         try
         {
-            Map<String, Index.Status> keyspaceIndexStatus = peerIndexStatus.computeIfAbsent(FBUtilities.getBroadcastAddressAndPort(),
+            Map<String, Index.Status> states = peerIndexStatus.computeIfAbsent(FBUtilities.getBroadcastAddressAndPort(),
                                                                                             k -> new ConcurrentHashMap<>());
             String keyspaceIndex = identifier(keyspace, index);
 
             if (status == Index.Status.DROPPED)
-                keyspaceIndexStatus.remove(keyspaceIndex);
+                states.remove(keyspaceIndex);
             else
-                keyspaceIndexStatus.put(keyspaceIndex, status);
+                states.put(keyspaceIndex, status);
 
-            String newStatus = FBUtilities.json(keyspaceIndexStatus);
-            VersionedValue value = StorageService.instance.valueFactory.indexStatus(newStatus);
-            ScheduledExecutors.optionalTasks.submit(() -> {
+            String newStatus = JSONValue.toJSONString(states.entrySet().stream()
+                                                            .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toString())));
+            statusPropagationExecutor.submit(() -> {
                 // schedule gossiper update asynchronously to avoid potential deadlock when another thread is holding
                 // gossiper taskLock.
+                VersionedValue value = StorageService.instance.valueFactory.indexStatus(newStatus);
                 Gossiper.instance.addLocalApplicationState(ApplicationState.INDEX_STATUS, value);
             });
         }
         catch (Throwable e)
         {
-            logger.warn("Unable to parse index status: {}", e.getMessage());
+            logger.warn("Unable to propagate index status: {}", e.getMessage());
         }
     }
 
