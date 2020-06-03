@@ -221,6 +221,7 @@ public class BigTableZeroCopyWriter extends SSTable implements SSTableMultiWrite
         catch (EOFException | AsyncStreamingInputPlus.InputTimeoutException e)
         {
             in.close();
+            logger.error("## ZCS-writer gracefully stopped", e);
         }
         catch (IOException e)
         {
