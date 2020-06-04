@@ -634,6 +634,10 @@
           <!-- when updating assertj, make sure to also update the corresponding junit-bom dependency -->
           <dependency groupId="org.assertj" artifactId="assertj-core" version="3.15.0"/>
 
+          <!-- used by Storage_Attached_idnex -->
+          <dependency groupId="org.apache.lucene" artifactId="lucene-core" version="7.5.0" />
+          <dependency groupId="com.carrotsearch.randomizedtesting" artifactId="randomizedtesting-runner" version="2.1.2" />
+
         </dependencyManagement>
         <developer id="adelapena" name="Andres de la Peña"/>
         <developer id="alakshman" name="Avinash Lakshman"/>
@@ -718,6 +722,11 @@
              this that the new assertj's `assertj-parent-pom` depends on. -->
         <dependency groupId="org.junit" artifactId="junit-bom" version="5.6.0" type="pom"/>
         <dependency groupId="org.assertj" artifactId="assertj-core"/>
+
+        <!-- used by Storage_Attached_idnex -->
+        <dependency groupId="org.apache.lucene" artifactId="lucene-core" />
+        <dependency groupId="com.carrotsearch.randomizedtesting" artifactId="randomizedtesting-runner" />
+
       </artifact:pom>
       <!-- this build-deps-pom-sources "artifact" is the same as build-deps-pom but only with those
            artifacts that have "-source.jar" files -->
@@ -737,6 +746,11 @@
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
         <dependency groupId="org.assertj" artifactId="assertj-core"/>
+
+        <!-- used by Storage_Attached_idnex -->
+        <dependency groupId="org.apache.lucene" artifactId="lucene-core" />
+        <dependency groupId="com.carrotsearch.randomizedtesting" artifactId="randomizedtesting-runner"/>
+
       </artifact:pom>
 
       <artifact:pom id="coverage-deps-pom"
