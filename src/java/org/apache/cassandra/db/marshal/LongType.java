@@ -28,12 +28,14 @@ import org.apache.cassandra.serializers.LongSerializer;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.ByteComparable;
+import org.apache.cassandra.utils.ByteSource;
 
 public class LongType extends NumberType<Long>
 {
     public static final LongType instance = new LongType();
 
-    LongType() {super(ComparisonType.CUSTOM);} // singleton
+    LongType() {super(ComparisonType.CUSTOM, 8);} // singleton
 
     public boolean isEmptyValueMeaningless()
     {
@@ -55,6 +57,12 @@ public class LongType extends NumberType<Long>
             return diff;
 
         return ByteBufferUtil.compareUnsigned(o1, o2);
+    }
+
+    @Override
+    public ByteSource asComparableBytes(ByteBuffer buf, ByteComparable.Version version)
+    {
+        return ByteSource.optionalSignedFixedLengthNumber(buf);
     }
 
     public ByteBuffer fromString(String source) throws MarshalException
@@ -118,12 +126,6 @@ public class LongType extends NumberType<Long>
     public TypeSerializer<Long> getSerializer()
     {
         return LongSerializer.instance;
-    }
-
-    @Override
-    public int valueLengthIfFixed()
-    {
-        return 8;
     }
 
     @Override

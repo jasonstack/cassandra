@@ -28,6 +28,8 @@ import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.serializers.TypeSerializer;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.ByteComparable;
+import org.apache.cassandra.utils.ByteSource;
 
 public class Int32Type extends NumberType<Integer>
 {
@@ -35,7 +37,7 @@ public class Int32Type extends NumberType<Integer>
 
     Int32Type()
     {
-        super(ComparisonType.CUSTOM);
+        super(ComparisonType.CUSTOM, 4);
     } // singleton
 
     public boolean isEmptyValueMeaningless()
@@ -53,6 +55,12 @@ public class Int32Type extends NumberType<Integer>
             return diff;
 
         return ByteBufferUtil.compareUnsigned(o1, o2);
+    }
+
+    @Override
+    public ByteSource asComparableBytes(ByteBuffer buf, ByteComparable.Version version)
+    {
+        return ByteSource.optionalSignedFixedLengthNumber(buf);
     }
 
     public ByteBuffer fromString(String source) throws MarshalException
@@ -110,12 +118,6 @@ public class Int32Type extends NumberType<Integer>
     public TypeSerializer<Integer> getSerializer()
     {
         return Int32Serializer.instance;
-    }
-
-    @Override
-    public int valueLengthIfFixed()
-    {
-        return 4;
     }
 
     @Override
