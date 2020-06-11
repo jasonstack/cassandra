@@ -580,7 +580,7 @@ public abstract class UnfilteredRowIterators
                 }
             }
 
-            protected void onKeyChange()
+            public void onKeyChange()
             {
                 if (nextKind == Unfiltered.Kind.ROW)
                     rowMerger.clear();
