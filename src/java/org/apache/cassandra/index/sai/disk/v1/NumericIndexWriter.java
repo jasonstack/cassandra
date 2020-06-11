@@ -85,7 +85,7 @@ public class NumericIndexWriter implements Closeable
                                     maxPointsInLeafNode,
                                     BKDWriter.DEFAULT_MAX_MB_SORT_IN_HEAP,
                                     numRows,
-                                    true, indexComponents.getEncryptionCompressor());
+                                    true);
     }
 
     @Override

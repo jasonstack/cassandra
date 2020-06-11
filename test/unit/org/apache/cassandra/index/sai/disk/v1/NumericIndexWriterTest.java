@@ -150,7 +150,7 @@ public class NumericIndexWriterTest extends NdiRandomizedTest
                     final ByteComparable actualTerm = ByteComparable.fixedLength(packedValue);
                     final ByteComparable expectedTerm = ByteComparable.of(Math.toIntExact(visited.get()));
                     assertEquals("Point value mismatch after visiting " + visited.get() + " entries.", 0,
-                                 ByteComparable.compare(actualTerm, expectedTerm, ByteComparable.Version.DSE68));
+                                 ByteComparable.compare(actualTerm, expectedTerm, ByteComparable.Version.OSS41));
 
                     visited.addAndGet(1);
                     return true;

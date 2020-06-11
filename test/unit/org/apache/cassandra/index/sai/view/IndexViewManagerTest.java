@@ -45,7 +45,6 @@ import org.apache.cassandra.index.sai.ColumnContext;
 import org.apache.cassandra.index.sai.SSTableContext;
 import org.apache.cassandra.index.sai.SSTableIndex;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
-import org.apache.cassandra.index.sai.disk.io.CryptoUtils;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -70,9 +69,9 @@ public class IndexViewManagerTest extends CQLTester
     @Test
     public void testUpdateFromFlush() throws Throwable
     {
-        createTable("CREATE TABLE %S (k INT PRIMARY KEY, v INT)");
+        String table = createTable("CREATE TABLE %S (k INT PRIMARY KEY, v INT)");
         String indexName = createIndex("CREATE CUSTOM INDEX ON %s(v) USING 'org.apache.cassandra.index.sai.StorageAttachedIndex'");
-        waitForIndex(KEYSPACE, indexName);
+        waitForIndex(KEYSPACE, table, indexName);
 
         ColumnContext columnContext = columnIndex(getCurrentColumnFamilyStore(), indexName);
         View initialView = columnContext.getView();
@@ -89,9 +88,9 @@ public class IndexViewManagerTest extends CQLTester
     @Test
     public void testUpdateFromCompaction() throws Throwable
     {
-        createTable("CREATE TABLE %S (k INT PRIMARY KEY, v INT)");
+        String table = createTable("CREATE TABLE %S (k INT PRIMARY KEY, v INT)");
         String indexName = createIndex("CREATE CUSTOM INDEX ON %s(v) USING 'org.apache.cassandra.index.sai.StorageAttachedIndex'");
-        waitForIndex(KEYSPACE, indexName);
+        waitForIndex(KEYSPACE, table, indexName);
 
         ColumnFamilyStore store = getCurrentColumnFamilyStore();
         ColumnContext columnContext = columnIndex(store, indexName);
@@ -123,7 +122,7 @@ public class IndexViewManagerTest extends CQLTester
     {
         String tableName = createTable("CREATE TABLE %S (k INT PRIMARY KEY, v INT)");
         String indexName = createIndex("CREATE CUSTOM INDEX ON %s(v) USING 'org.apache.cassandra.index.sai.StorageAttachedIndex'");
-        waitForIndex(KEYSPACE, indexName);
+        waitForIndex(KEYSPACE, tableName, indexName);
 
         ColumnFamilyStore store = getCurrentColumnFamilyStore();
         ColumnContext columnContext = columnIndex(store, indexName);
@@ -225,7 +224,7 @@ public class IndexViewManagerTest extends CQLTester
 
         MockSSTableIndex(SSTableContext group, ColumnContext context) throws IOException
         {
-            super(group, context, IndexComponents.create(context.getColumnName(), group.descriptor(), CryptoUtils.getCompressionParams(group.sstable())));
+            super(group, context, IndexComponents.create(context.getColumnName(), group.descriptor()));
         }
 
         @Override
@@ -240,7 +239,7 @@ public class IndexViewManagerTest extends CQLTester
     {
         for (Component component : SSTable.componentsFor(table.descriptor))
         {
-            Path src = table.descriptor.filenameFor(component).toPath();
+            Path src = table.descriptor.fileFor(component).toPath();
             Path dst = destDir.resolve(src.getFileName());
             try
             {

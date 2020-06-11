@@ -23,16 +23,13 @@ package org.apache.cassandra.index.sai.cql;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
-import javax.validation.constraints.NotNull;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
 import org.apache.cassandra.index.sai.SAITester;
-import com.datastax.oss.driver.api.core.cql.ResultSet;
-import com.datastax.oss.driver.api.core.cql.Row;
 import org.apache.cassandra.utils.Pair;
 
 import static org.junit.Assert.assertEquals;
@@ -124,7 +121,6 @@ public class PartitionRestrictedQueryTest extends SAITester
         }
     }
 
-    @Category(NightlyOnly.class)
     @Test
     public void shouldQuerySmallNumericRangeInSinglePartition() throws Throwable
     {
@@ -144,7 +140,6 @@ public class PartitionRestrictedQueryTest extends SAITester
         }
     }
 
-    @Category(NightlyOnly.class)
     @Test
     public void testCount() throws Throwable
     {
@@ -161,7 +156,6 @@ public class PartitionRestrictedQueryTest extends SAITester
         assertEquals(filteredRows.one().getInt(0), indexedRows.one().getInt(0));
     }
 
-    @Category(NightlyOnly.class)
     @Test
     public void testAverage() throws Throwable
     {
@@ -197,7 +191,6 @@ public class PartitionRestrictedQueryTest extends SAITester
         }
     }
 
-    @NotNull
     private List<Pair<Integer, Integer>> buildScenarios(int numRows)
     {
 

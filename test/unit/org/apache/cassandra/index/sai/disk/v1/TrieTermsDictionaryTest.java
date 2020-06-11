@@ -38,7 +38,7 @@ import org.apache.cassandra.utils.ByteSource;
 import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.index.sai.disk.v1.TrieTermsDictionaryReader.NOT_FOUND;
-import static org.apache.cassandra.utils.ByteComparable.Version.DSE68;
+import static org.apache.cassandra.utils.ByteComparable.Version.OSS41;
 import static org.apache.cassandra.utils.ByteComparable.compare;
 
 public class TrieTermsDictionaryTest extends NdiRandomizedTest
@@ -103,7 +103,7 @@ public class TrieTermsDictionaryTest extends NdiRandomizedTest
                 assertTrue(expected.hasNext());
                 final Pair<ByteSource, Long> actual = iterator.next();
 
-                assertEquals(0, compare(expected.next(), v -> actual.left, DSE68));
+                assertEquals(0, compare(expected.next(), v -> actual.left, OSS41));
                 assertEquals(offset++, actual.right.longValue());
             }
             assertFalse(expected.hasNext());
@@ -136,11 +136,11 @@ public class TrieTermsDictionaryTest extends NdiRandomizedTest
         {
             final ByteComparable expectedMaxTerm = byteComparables.get(byteComparables.size() - 1);
             final ByteSource actualMaxTerm = reader.getMaxTerm();
-            assertEquals(0, compare(expectedMaxTerm, v -> actualMaxTerm, DSE68));
+            assertEquals(0, compare(expectedMaxTerm, v -> actualMaxTerm, OSS41));
 
             final ByteComparable expectedMinTerm = byteComparables.get(0);
             final ByteSource actualMinTerm = reader.getMinTerm();
-            assertEquals(0, compare(expectedMinTerm, v -> actualMinTerm, DSE68));
+            assertEquals(0, compare(expectedMinTerm, v -> actualMinTerm, OSS41));
         }
     }
 

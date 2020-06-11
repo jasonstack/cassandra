@@ -23,7 +23,6 @@ import java.util.List;
 
 import com.google.common.collect.Iterators;
 
-import org.apache.cassandra.concurrent.TPCTaskType;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
@@ -32,10 +31,6 @@ import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.AbstractUnfilteredRowIterator;
-import org.apache.cassandra.db.rows.FlowablePartition;
-import org.apache.cassandra.db.rows.FlowablePartitionBase;
-import org.apache.cassandra.db.rows.FlowablePartitions;
-import org.apache.cassandra.db.rows.FlowableUnfilteredPartition;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
@@ -49,13 +44,10 @@ import org.apache.cassandra.index.sai.metrics.TableQueryMetrics;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.AbstractIterator;
-import org.apache.cassandra.utils.flow.Flow;
-import org.apache.cassandra.utils.flow.Threads;
 
 
 public class StorageAttachedIndexSearcher implements Index.Searcher
 {
-    private final ReadCommand command;
     private final QueryController controller;
     private final QueryContext queryContext;
 
@@ -65,62 +57,24 @@ public class StorageAttachedIndexSearcher implements Index.Searcher
                                         List<RowFilter.Expression> expressions,
                                         long executionQuotaMs)
     {
-        this.command = command;
         this.queryContext = new QueryContext(executionQuotaMs);
         this.controller = new QueryController(cfs, command, expressions, queryContext, tableQueryMetrics);
     }
 
     @Override
-    public ReadCommand command()
+    public UnfilteredPartitionIterator search(ReadExecutionController executionController) throws RequestTimeoutException
     {
-        return command;
-    }
-
-    @Override
-    public Flow<FlowablePartition> filterReplicaFilteringProtection(Flow<FlowablePartition> fullResponse)
-    {
-        for (RowFilter.Expression expression : controller.getExpressions())
-        {
-            if (controller.getContext(expression).getAnalyzer().transformValue())
-                return applyIndexFilter(fullResponse, analyzeFilter(), queryContext);
-        }
-
-        // if no analyzer does transformation
-        return Index.Searcher.super.filterReplicaFilteringProtection(fullResponse);
-    }
-
-    @Override
-    public Flow<FlowableUnfilteredPartition> search(ReadExecutionController executionController) throws RequestTimeoutException
-    {
-        return analyzeAsync().map(operation -> new ResultRetriever(operation, controller, executionController, queryContext))
-                             .flatMap(FlowablePartitions::fromPartitions);
+        return  new ResultRetriever(analyze(), controller, executionController, queryContext);
     }
 
     /**
      * Converts expressions into filter tree and reference {@link SSTableIndex}s used for query.
-     *
-     * @return operation flow
      */
-    private Flow<Operation> analyzeAsync()
+    private Operation analyze()
     {
         // complete() will perform blocking IO via SimpleChunkReader when building range iterator, it must not run on TPC thread.
         // But SASI is doing blocking io via {@link MappedBuffer}, so it can run on TPC thread.
-        return Flow.fromCallable(() -> Operation.initTreeBuilder(controller).complete())
-                   .lift(Threads.requestOnIo(TPCTaskType.READ_SECONDARY_INDEX));
-    }
-
-    /**
-     * Converts expressions into filter tree (which is currently just a single AND).
-     *
-     * Filter tree allows us to do a couple of important optimizations
-     * namely, group flattening for AND operations (query rewrite), expression bounds checks,
-     * "satisfies by" checks for resulting rows with an early exit.
-     *
-     * @return root of the filter tree.
-     */
-    private FilterTree analyzeFilter()
-    {
-        return Operation.initTreeBuilder(controller).completeFilter();
+        return Operation.initTreeBuilder(controller).complete();
     }
 
     private static class ResultRetriever extends AbstractIterator<UnfilteredRowIterator> implements UnfilteredPartitionIterator
@@ -152,7 +106,7 @@ public class StorageAttachedIndexSearcher implements Index.Searcher
             if (operation == null)
                 return endOfData();
 
-            operation.skipTo(keyRange.left.getToken().getLongValue());
+            operation.skipTo((Long) keyRange.left.getToken().getTokenValue());
 
             // IMPORTANT: The correctness of the entire query pipeline relies on the fact that we consume a token
             // and materialize its keys before moving on to the next token in the flow. This sequence must not be broken
@@ -195,21 +149,11 @@ public class StorageAttachedIndexSearcher implements Index.Searcher
             lastKey = key;
 
             // SPRC should only return UnfilteredRowIterator, but it returns UnfilteredPartitionIterator due to Flow.
-            try (UnfilteredPartitionIterator partitions = controller.getPartition(key, executionController))
+            try (UnfilteredRowIterator partition = controller.getPartition(key, executionController))
             {
-                if (!partitions.hasNext())
-                    return null;
+                queryContext.partitionsRead++;
 
-                try (UnfilteredRowIterator partition  = partitions.next())
-                {
-                    queryContext.partitionsRead++;
-
-                    return applyIndexFilter(partition, operation.filterTree, queryContext);
-                }
-                finally
-                {
-                    assert !partitions.hasNext() : "SinglePartitionReadCommand should only return one partition";
-                }
+                return applyIndexFilter(partition, operation.filterTree, queryContext);
             }
         }
 
@@ -282,33 +226,5 @@ public class StorageAttachedIndexSearcher implements Index.Searcher
             FileUtils.closeQuietly(operation);
             controller.finish();
         }
-    }
-
-    /**
-     * Used by {@link StorageAttachedIndexSearcher#filterReplicaFilteringProtection} which is not ported to OSS yet.
-     */
-    private static <U extends Unfiltered, F extends FlowablePartitionBase<U, F>> Flow<F>  applyIndexFilter(Flow<F> fp, FilterTree tree, QueryContext queryContext)
-    {
-        return fp.flatMap(partition ->
-                          {
-                              Row staticRow = partition.staticRow();
-                              /*
-                               * If {@code content} is empty, which means either all clustering row and static row pairs failed,
-                               *       or static row and static row pair failed. In both cases, we should not return any partition.
-                               * If {@code content} is not empty, which means either there are some clustering row and static row pairs match the filters,
-                               *       or static row and static row pair matches the filters. In both cases, we should return a partition with static row,
-                               *       and remove the static row marker from the {@code content} for the latter case.
-                               */
-                              Flow<U> content = partition.content()
-                                                         .filter(Unfiltered::isRow)
-                                                         .ifEmpty((U) staticRow)
-                                                         .filter(row ->
-                                                                 {
-                                                                     queryContext.rowsFiltered++;
-                                                                     return tree.satisfiedBy(row, staticRow, true);
-                                                                 });
-
-                              return content.skipMapEmpty(c -> partition.withContent(c.filter(unfiltered -> !((Row)unfiltered).isStatic())));
-                          });
     }
 }

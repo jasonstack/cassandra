@@ -25,7 +25,6 @@ import com.google.common.base.MoreObjects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.concurrent.TPCUtils;
 import org.apache.cassandra.index.sai.SSTableQueryContext;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.disk.v1.TermsReader;
@@ -66,11 +65,10 @@ public class InvertedIndexSearcher extends IndexSearcher
                                  root, footerPointer);
     }
 
+    @SuppressWarnings("resource")
     @Override
     public RangeIterator search(Expression exp, SSTableQueryContext context)
     {
-        assert !TPCUtils.isTPCThread() : Thread.currentThread().getName();
-
         if (logger.isTraceEnabled())
             logger.trace(indexComponents.logMessage("Searching on expression '{}'..."), exp);
 

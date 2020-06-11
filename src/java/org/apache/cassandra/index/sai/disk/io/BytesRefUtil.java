@@ -23,7 +23,7 @@ package org.apache.cassandra.index.sai.disk.io;
 
 import java.nio.ByteBuffer;
 
-import org.apache.cassandra.utils.UnsafeCopy;
+import org.apache.cassandra.utils.FastByteOperations;
 import org.apache.lucene.util.BytesRefBuilder;
 
 public final class BytesRefUtil
@@ -35,7 +35,7 @@ public final class BytesRefUtil
         int length = buffer.remaining();
         stringBuffer.clear();
         stringBuffer.grow(length);
-        UnsafeCopy.copyBufferToArray(buffer, stringBuffer.bytes(), 0);
+        FastByteOperations.copy(buffer, buffer.position(), stringBuffer.bytes(), 0, buffer.remaining());
         stringBuffer.setLength(length);
     }
 }

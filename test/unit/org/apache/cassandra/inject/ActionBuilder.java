@@ -23,8 +23,6 @@ import java.util.stream.Collectors;
 
 import com.google.common.base.Preconditions;
 
-import org.jboss.byteman.test.ng.InjectorHelper;
-
 import static org.apache.cassandra.inject.Expression.THIS;
 import static org.apache.cassandra.inject.Expression.expr;
 import static org.apache.cassandra.inject.Expression.quote;
@@ -35,7 +33,7 @@ import static org.apache.cassandra.inject.Expression.quote;
  */
 public class ActionBuilder
 {
-    private Class<?> helperClass = InjectorHelper.class;
+    private Class<?> helperClass = null;
     private ConditionsBuilder conditionsBuilder = new ConditionsBuilder();
     private BindingsBuilder bindingsBuilder = new BindingsBuilder();
     private ActionsBuilder actionsBuilder = new ActionsBuilder();

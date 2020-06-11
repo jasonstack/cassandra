@@ -74,7 +74,7 @@ public class ImmutableOneDimPointValues extends MutablePointValues
     {
         while (termEnum.hasNext())
         {
-            ByteBufferUtil.toBytes(termComparator.asComparableBytes(termEnum.next(), ByteComparable.Version.DSE68), scratch);
+            ByteBufferUtil.toBytes(termComparator.asComparableBytes(termEnum.next(), ByteComparable.Version.OSS41), scratch);
             try (final PostingList postings = termEnum.postings())
             {
                 int segmentRowId;

@@ -30,24 +30,20 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
+import com.datastax.driver.core.SimpleStatement;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.disk.SegmentBuilder;
 import org.apache.cassandra.index.sai.disk.v1.BKDReader;
 import org.apache.cassandra.index.sai.disk.v1.TermsReader;
 import org.apache.cassandra.inject.Injections;
 import org.apache.cassandra.inject.InvokePointBuilder;
-import com.datastax.oss.driver.api.core.cql.SimpleStatement;
 import com.sun.management.UnixOperatingSystemMXBean;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.io.util.FileHandle;
 
 import static org.junit.Assert.assertEquals;
 
-@Category(NightlyOnly.class)
 public class IndexSegmentationTest extends SAITester
 {
     private static final String CREATE_TABLE_TEMPLATE = "CREATE TABLE %s (id1 TEXT PRIMARY KEY, v1 INT, v2 TEXT)" +
@@ -60,7 +56,7 @@ public class IndexSegmentationTest extends SAITester
     {
         Config conf = DatabaseDescriptor.loadConfig();
         conf.num_tokens = 16;
-        DatabaseDescriptor.daemonInitialization(true, conf);
+        DatabaseDescriptor.daemonInitialization(() -> conf);
     }
 
     @Before
@@ -111,7 +107,7 @@ public class IndexSegmentationTest extends SAITester
         upgradeSSTables();
         waitForAssert(() -> verifyIndexFiles(sstable, sstable), WAIT_FOR_INDEX_FILE_CLEANUP);
 
-        long indexDescriptor = getOpenIndexFiles() * FileHandle.FILE_DESCRIPTOR_PER_HANDLE;
+        long indexDescriptor = getOpenIndexFiles();
         long openFilesWithOneSegment = getOpenVmFiles();
         long increased = openFilesWithOneSegment - openFilesWithNoIndex;
 
@@ -285,7 +281,7 @@ public class IndexSegmentationTest extends SAITester
     {
         assertEquals(count,
                 sessionNet(getDefaultVersion())
-                        .execute(SimpleStatement.newInstance(formatQuery(query))
-                        .setPageSize(PAGE_SIZE)).all().size());
+                        .execute(new SimpleStatement(formatQuery(query))
+                        .setFetchSize(PAGE_SIZE)).all().size());
     }
 }

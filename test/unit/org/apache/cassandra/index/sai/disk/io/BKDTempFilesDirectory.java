@@ -62,16 +62,16 @@ public class BKDTempFilesDirectory extends Directory
     public IndexOutput createTempOutput(String prefix, String suffix, IOContext context)
     {
         final String name = prefix + "_" + Long.toString(nextTempFileCounter.getAndIncrement(), Character.MAX_RADIX) + "_" + suffix;
-        final File file = delegate.descriptor.tmpFilenameFor(new Component(Component.Type.CUSTOM, String.format(PER_COLUMN_FILE_NAME_FORMAT, delegate.column, name)));
-        return delegate.createOutput(file);
+        final String file = delegate.descriptor.tmpFilenameFor(new Component(Component.Type.CUSTOM, String.format(PER_COLUMN_FILE_NAME_FORMAT, delegate.column, name)));
+        return delegate.createOutput(new File(file));
     }
 
     @Override
     public IndexInput openInput(String name, IOContext context)
     {
         final File indexInput = getTmpFileByName(name);
-        
-        try (FileHandle.Builder builder = new FileHandle.Builder(indexInput))
+
+        try (FileHandle.Builder builder = new FileHandle.Builder(indexInput.getPath()))
         {
             final FileHandle handle = builder.complete();
             final RandomAccessReader reader = handle.createReader();
@@ -141,7 +141,7 @@ public class BKDTempFilesDirectory extends Directory
     private File getTmpFileByName(String name)
     {
         assert name.endsWith(Descriptor.TMP_EXT);
-        final File file = new File(delegate.descriptor.directory, name);
+        final File file = new File(name);
         if (file.exists())
         {
             return file;

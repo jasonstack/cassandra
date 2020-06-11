@@ -22,6 +22,7 @@ package org.apache.cassandra.index.sai.memory;
 
 import java.nio.ByteBuffer;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.db.BufferDecoratedKey;
@@ -33,6 +34,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
+@Ignore
 public abstract class AbstractKeyRangeIteratorTest
 {
     private static final ByteBuffer KEY_BUFFER = ByteBufferUtil.bytes(0L);

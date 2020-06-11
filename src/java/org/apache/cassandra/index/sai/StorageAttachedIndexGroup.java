@@ -24,7 +24,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -34,13 +34,12 @@ import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.db.WriteContext;
 import org.apache.cassandra.index.sai.disk.StorageAttachedIndexWriter;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.metrics.IndexGroupMetrics;
 import org.apache.cassandra.index.sai.metrics.TableQueryMetrics;
 import org.apache.cassandra.index.sai.plan.StorageAttachedIndexQueryPlan;
-import io.reactivex.Completable;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Memtable;
@@ -61,13 +60,9 @@ import org.apache.cassandra.notifications.MemtableDiscardedNotification;
 import org.apache.cassandra.notifications.MemtableRenewedNotification;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.notifications.SSTableListChangedNotification;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.schema.TableParams;
-import org.apache.cassandra.streaming.SSTableStreamingSections;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
-import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /**
  * Orchestrates building of storage-attached indices, and manages lifecycle of resources shared between them.
@@ -160,34 +155,34 @@ public class StorageAttachedIndexGroup implements Index.Group, INotificationCons
     public Index.Indexer indexerFor(Predicate<Index> indexSelector, 
                                     DecoratedKey key,
                                     RegularAndStaticColumns columns, 
-                                    int nowInSec, 
-                                    OpOrder.Group opGroup, 
+                                    int nowInSec,
+                                    WriteContext ctx,
                                     IndexTransaction.Type transactionType, 
                                     Memtable memtable)
     {
         final Set<Index.Indexer> indexers = 
                 indices.stream().filter(indexSelector)
-                                .map(i -> i.indexerFor(key, columns, nowInSec, opGroup, transactionType, memtable))
+                                .map(i -> i.indexerFor(key, columns, nowInSec, ctx, transactionType, memtable))
                                 .filter(Objects::nonNull)
                                 .collect(Collectors.toSet());
 
         return indexers.isEmpty() ? null : new StorageAttachedIndex.IndexerAdapter()
         {
             @Override
-            public Completable insertRow(Row row)
+            public void insertRow(Row row)
             {
-                return forEach(indexer -> indexer.insertRow(row));
+                forEach(indexer -> indexer.insertRow(row));
             }
 
             @Override
-            public Completable updateRow(Row oldRow, Row newRow)
+            public void updateRow(Row oldRow, Row newRow)
             {
-                return forEach(indexer -> indexer.updateRow(oldRow, newRow));
+                 forEach(indexer -> indexer.updateRow(oldRow, newRow));
             }
 
-            private Completable forEach(Function<Index.Indexer, Completable> action)
+            private void forEach(Consumer<Index.Indexer> action)
             {
-                return Completable.merge(indexers.stream().map(action).collect(Collectors.toSet()));
+                indexers.forEach(action::accept);
             }
         };
     }
@@ -203,9 +198,7 @@ public class StorageAttachedIndexGroup implements Index.Group, INotificationCons
     {
         try
         {
-            final CompressionParams compressionParams = tableMetadata.params.get(TableParams.COMPRESSION);
-
-            return new StorageAttachedIndexWriter(descriptor, indices, tracker, compressionParams);
+            return new StorageAttachedIndexWriter(descriptor, indices, tracker);
         }
         catch (Throwable t)
         {
@@ -229,38 +222,6 @@ public class StorageAttachedIndexGroup implements Index.Group, INotificationCons
         return getComponents(indices);
     }
 
-    @Override
-    public Set<Component> getZeroCopyStreamingComponents(SSTableStreamingSections sections)
-    {
-        // If the sstable is streamed partially via the given sections, check if the streamed sections size is under a
-        // given percentage of the full sstable size: if it is, do not return any components as we'll rather rebuild
-        // the index to avoid streaming too much data in excess.
-        boolean rebuildOnReceiver = sections.streamRatio() < DatabaseDescriptor.getSAIZeroCopyUsedThreshold();
-        if (rebuildOnReceiver)
-        {
-            return Collections.emptySet();
-        }
-        else
-        {
-            SSTableReader sstable = sections.ref.get();
-            // avoid transferring index files that are not fully built
-            Collection<StorageAttachedIndex> built = indices.stream().filter(index -> index.getContext().getView().containsSSTable(sstable))
-                                                           .collect(Collectors.toList());
-            if (built.isEmpty())
-                return Collections.emptySet();
-
-            /*
-             * If all partial sstables share the same disk, storage-attached index files will be hard-linked and shared.
-             * See: {@link ZeroCopySSTableWriter#TransactionalProxy#doPrepare}
-             * TODO:
-             * When sstable is partially transferred, we can skip segments that are out of transferred ranges.
-             * (note: need to take care of index structure offset properly for partial transferred segments,
-             * eg. the posting offset stored in the trie term dictionary is based on the original index file.)
-             */
-            return getComponents(built);
-        }
-    }
-
     static Set<Component> getComponents(Collection<StorageAttachedIndex> indices)
     {
         Set<Component> components = new HashSet<>(IndexComponents.PER_SSTABLE_COMPONENTS);
@@ -278,7 +239,7 @@ public class StorageAttachedIndexGroup implements Index.Group, INotificationCons
 
             // Avoid validation for index files just written following Memtable flush. ZCS streaming should
             // validate index checksum.
-            boolean validate = notice.fromStream || !notice.memtable().isPresent();
+            boolean validate = !notice.memtable().isPresent();
             onSSTableChanged(Collections.emptySet(), notice.added, indices, validate);
         }
         else if (notification instanceof SSTableListChangedNotification)

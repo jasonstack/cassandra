@@ -27,8 +27,11 @@ import javax.management.ObjectName;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.exceptions.ReadFailureException;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.disk.SSTableComponentsWriter;
 import org.apache.cassandra.index.sai.disk.SSTableIndexWriter;
@@ -37,25 +40,20 @@ import org.apache.cassandra.index.sai.utils.NamedMemoryLimiter;
 import org.apache.cassandra.inject.Injection;
 import org.apache.cassandra.inject.Injections;
 import org.apache.cassandra.inject.InvokePointBuilder;
-import com.datastax.oss.driver.api.core.cql.ResultSet;
-import com.datastax.oss.driver.api.core.servererrors.ReadFailureException;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.StorageAttachedIndexOptions;
-import org.apache.cassandra.utils.units.SizeUnit;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+@Ignore
 public abstract class SegmentFlushingFailureTest extends SAITester
 {
-    static final long DEFAULT_BYTES_LIMIT = SizeUnit.MEGABYTES.toBytes(StorageAttachedIndexOptions.DEFAULT_SEGMENT_BUFFER_MB);
+    static final long DEFAULT_BYTES_LIMIT = 1024L * 1024L * StorageAttachedIndexOptions.DEFAULT_SEGMENT_BUFFER_MB;
 
     @Before
     public void initialize() throws Throwable
     {
-        DatabaseDescriptor.setMetricsHistogramUpdateTimeMillis(0);
-
         requireNetwork();
 
         startJMXServer();

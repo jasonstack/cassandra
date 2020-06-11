@@ -20,11 +20,6 @@
  */
 package org.apache.cassandra.index.sai.metrics;
 
-import org.junit.experimental.categories.Category;
-
-import org.apache.cassandra.categories.NightlyOnly;
-
-@Category(NightlyOnly.class)
 public class FinalSegmentFlushingFailureTest extends SegmentFlushingFailureTest
 {
     @Override

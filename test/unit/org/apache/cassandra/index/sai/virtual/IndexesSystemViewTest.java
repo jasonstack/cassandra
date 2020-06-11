@@ -20,44 +20,46 @@
  */
 package org.apache.cassandra.index.sai.virtual;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
+import com.datastax.driver.core.exceptions.InvalidQueryException;
+import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.virtual.SystemViewsKeyspace;
+import org.apache.cassandra.db.virtual.VirtualKeyspace;
+import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.index.sai.ColumnContext;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.index.sai.StorageAttachedIndexGroup;
 import org.apache.cassandra.inject.Injections;
 import org.apache.cassandra.inject.InvokePointBuilder;
-import com.datastax.oss.driver.api.core.servererrors.InvalidQueryException;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.schema.SchemaConstants;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests the virtual table exposing storage-attached column index metadata.
  */
-@Category(NightlyOnly.class)
 public class IndexesSystemViewTest extends SAITester
 {
     private static final String UPDATE = String.format("UPDATE %s.%s SET %%s=%%s WHERE %s='%s' AND %s='%%s'",
-                                                       SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME,
+                                                       SystemViewsKeyspace.NAME,
                                                        IndexesSystemView.NAME,
                                                        IndexesSystemView.KEYSPACE_NAME,
                                                        KEYSPACE,
                                                        IndexesSystemView.INDEX_NAME);
     private static final String INSERT = String.format("INSERT INTO %s.%s (%s, %s, %%s) VALUES('%s', '%%s', %%s)",
-                                                       SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME,
+                                                       SystemViewsKeyspace.NAME,
                                                        IndexesSystemView.NAME,
                                                        IndexesSystemView.KEYSPACE_NAME,
                                                        IndexesSystemView.INDEX_NAME,
                                                        KEYSPACE);
     private static final String DELETE = String.format("DELETE FROM %s.%s WHERE %s='%s' AND %s='%%s'",
-                                                       SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME,
+                                                       SystemViewsKeyspace.NAME,
                                                        IndexesSystemView.NAME,
                                                        IndexesSystemView.KEYSPACE_NAME,
                                                        KEYSPACE,
@@ -75,7 +77,7 @@ public class IndexesSystemViewTest extends SAITester
                                                        IndexesSystemView.CELL_COUNT,
                                                        IndexesSystemView.PER_TABLE_DISK_SIZE,
                                                        IndexesSystemView.PER_COLUMN_DISK_SIZE,
-                                                       SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME,
+                                                       SystemViewsKeyspace.NAME,
                                                        IndexesSystemView.NAME,
                                                        IndexesSystemView.KEYSPACE_NAME,
                                                        KEYSPACE);
@@ -84,6 +86,14 @@ public class IndexesSystemViewTest extends SAITester
             Injections.newBarrier("block_index_build", 2, false)
                             .add(InvokePointBuilder.newInvokePoint().onClass(StorageAttachedIndex.class).onMethod("startInitialBuild"))
                             .build();
+
+    @BeforeClass
+    public static void setUpClass()
+    {
+        VirtualKeyspaceRegistry.instance.register(new VirtualKeyspace(SystemViewsKeyspace.NAME, ImmutableList.of(new IndexesSystemView(SystemViewsKeyspace.NAME))));
+
+        CQLTester.setUpClass();
+    }
 
     @Before
     public void setup()
@@ -156,47 +166,6 @@ public class IndexesSystemViewTest extends SAITester
         // drop the base table and verify that the virtual table is empty
         dropTable("DROP TABLE %s");
         assertEmpty(execute(SELECT));
-    }
-
-    @Test
-    public void testUpdateIsQueryable() throws Throwable
-    {
-        // create the table and verify that the virtual table is empty before creating any indexes
-        assertEmpty(execute(SELECT));
-        createTable("CREATE TABLE %s (k int, c int, v1 int, v2 text, PRIMARY KEY (k, c))");
-
-        // create the index and wait for it to be queryable
-        String v1IndexName = createIndex(String.format(CREATE_INDEX_TEMPLATE, "v1"));
-        waitForIndexQueryable();
-        assertRows(execute(SELECT), row(v1IndexName, "v1", true, false, false, 0, 0L));
-
-        // update isQueryable to false and verify it's not queryable
-        execute(String.format(UPDATE, IndexesSystemView.IS_QUERYABLE, false, v1IndexName));
-        assertRows(execute(SELECT), row(v1IndexName, "v1", false, false, false, 0, 0L));
-
-        // update isQueryable to true and verify it's queryable
-        execute(String.format(UPDATE, IndexesSystemView.IS_QUERYABLE, true, v1IndexName));
-        assertRows(execute(SELECT), row(v1IndexName, "v1", true, false, false, 0, 0L));
-
-        // insert isQueryable to false and verify it's non-queryable
-        execute(String.format(INSERT, IndexesSystemView.IS_QUERYABLE, v1IndexName, false));
-        assertRows(execute(SELECT), row(v1IndexName, "v1", false, false, false, 0, 0L));
-
-        // try to update non-existing indexes, it should fail
-        assertThatThrownBy(() -> executeNet(String.format(UPDATE, IndexesSystemView.IS_QUERYABLE, false, "non_existing_index")))
-                .isInstanceOf(InvalidQueryException.class).hasMessageContaining("INSERT are not supported on system views");
-
-        // try to update is_building column, it should fail
-        assertThatThrownBy(() -> executeNet(String.format(UPDATE, IndexesSystemView.IS_BUILDING, false, v1IndexName)))
-                .isInstanceOf(InvalidQueryException.class).hasMessageContaining("Modifications are not supported on column is_building of system view");
-
-        // try to insert is_building column, it should fail
-        assertThatThrownBy(() -> executeNet(String.format(INSERT, IndexesSystemView.IS_BUILDING, v1IndexName, false)))
-                .isInstanceOf(InvalidQueryException.class).hasMessageContaining("Modifications are not supported on column is_building of system view");
-
-        // try to delete, it should fail
-        assertThatThrownBy(() -> executeNet(String.format(DELETE, v1IndexName)))
-                .isInstanceOf(InvalidQueryException.class).hasMessageContaining("System views don't support DELETE statements");
     }
 
     private Object[] row(String indexName,

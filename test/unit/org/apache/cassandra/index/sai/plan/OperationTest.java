@@ -35,6 +35,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.index.sai.IndexingSchemaLoader;
 import org.apache.cassandra.index.sai.QueryContext;
 import org.apache.cassandra.index.sai.plan.Operation.OperationType;
@@ -56,12 +57,10 @@ import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.flow.Flow;
 
 import static org.apache.cassandra.db.marshal.Int32Type.instance;
 
@@ -82,7 +81,6 @@ public class OperationTest extends IndexingSchemaLoader
         System.setProperty("cassandra.config", "cassandra-murmur.yaml");
 
         IndexingSchemaLoader.loadSchema();
-        Gossiper.instance.clusterVersionBarrier.onLocalNodeReady();
 
         IndexingSchemaLoader.createKeyspace(KS_NAME,
                                     KeyspaceParams.simpleTransient(1),
@@ -629,7 +627,7 @@ public class OperationTest extends IndexingSchemaLoader
         }
 
         @Override
-        public Flow<Boolean> isSatisfiedBy(TableMetadata metadata, DecoratedKey partitionKey, Row row)
+        public boolean isSatisfiedBy(TableMetadata metadata, DecoratedKey partitionKey, Row row)
         {
             throw new UnsupportedOperationException();
         }
@@ -652,7 +650,7 @@ public class OperationTest extends IndexingSchemaLoader
 
     private static Row buildRow(Clustering clustering, Row.Deletion deletion, Cell... cells)
     {
-        Row.Builder rowBuilder = Row.Builder.sorted();
+        Row.Builder rowBuilder = BTreeRow.sortedBuilder();
         rowBuilder.newRow(clustering);
         for (Cell c : cells)
             rowBuilder.addCell(c);

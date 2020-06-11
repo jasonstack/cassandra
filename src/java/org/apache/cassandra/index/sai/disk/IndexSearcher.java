@@ -22,7 +22,6 @@ package org.apache.cassandra.index.sai.disk;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
@@ -38,7 +37,6 @@ import org.apache.cassandra.index.sai.plan.Expression;
 import org.apache.cassandra.index.sai.utils.LongArray;
 import org.apache.cassandra.index.sai.utils.RangeIterator;
 import org.apache.cassandra.index.sai.utils.TypeUtil;
-import org.apache.cassandra.io.sstable.metadata.ZeroCopyMetadata;
 
 /**
  * Abstract reader for individual segments of an on-disk index.
@@ -48,7 +46,6 @@ import org.apache.cassandra.io.sstable.metadata.ZeroCopyMetadata;
  */
 public abstract class IndexSearcher implements Closeable
 {
-    private final ZeroCopyMetadata zeroCopyMetadata;
     private final LongArray.Factory rowIdToTokenFactory;
     private final LongArray.Factory rowIdToOffsetFactory;
     private final KeyFetcher keyFetcher;
@@ -60,7 +57,6 @@ public abstract class IndexSearcher implements Closeable
 
     IndexSearcher(Segment segment)
     {
-        this.zeroCopyMetadata = segment.zeroCopyMetadata;
         this.indexComponents = segment.indexFiles.components();
         this.rowIdToTokenFactory = segment.segmentRowIdToTokenFactory;
         this.rowIdToOffsetFactory = segment.segmentRowIdToOffsetFactory;
@@ -126,9 +122,6 @@ public abstract class IndexSearcher implements Closeable
         if (!iterator.hasNext())
             return RangeIterator.empty();
 
-        if (zeroCopyMetadata.exists())
-            iterator.skipTo(rangeIteratorStatistics.minToken);
-
         return iterator;
     }
 
@@ -149,36 +142,12 @@ public abstract class IndexSearcher implements Closeable
                     : toLongToken(metadata.maxKey);
 
             maxPartitionOffset = Long.MAX_VALUE;
-
-            if (zeroCopyMetadata.exists())
-            {
-                long sstableMin = toLongToken(zeroCopyMetadata.firstKey);
-                long sstableMax = toLongToken(zeroCopyMetadata.lastKey);
-
-                // no overlap
-                if (sstableMax < minToken || sstableMin > maxToken)
-                {
-                    noOverlap = true;
-                }
-                else
-                {
-                    // part of segment may have been skipped during ZCS
-                    minToken = Math.max(minToken, sstableMin);
-                    maxToken = Math.min(maxToken, sstableMax);
-                    maxPartitionOffset = zeroCopyMetadata.endOffset;
-                }
-            }
         }
     }
 
     private static long toLongToken(DecoratedKey key)
     {
         return toLongToken(key.getToken());
-    }
-
-    private static long toLongToken(ByteBuffer key)
-    {
-        return toLongToken(DatabaseDescriptor.getPartitioner().getToken(key));
     }
 
     private static long toLongToken(Token token)

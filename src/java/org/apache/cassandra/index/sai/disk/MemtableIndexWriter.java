@@ -43,7 +43,6 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -63,8 +62,7 @@ public class MemtableIndexWriter implements ColumnIndexWriter
     public MemtableIndexWriter(MemtableIndex memtable,
                                Descriptor descriptor,
                                ColumnContext context,
-                               RowMapping rowMapping,
-                               CompressionParams compressionParams)
+                               RowMapping rowMapping)
     {
         assert rowMapping != null && rowMapping != RowMapping.DUMMY : "Row mapping must exist during FLUSH.";
 
@@ -73,7 +71,7 @@ public class MemtableIndexWriter implements ColumnIndexWriter
         this.context = context;
         this.descriptor = descriptor;
 
-        this.indexComponents = IndexComponents.create(context.getColumnName(), descriptor, compressionParams);
+        this.indexComponents = IndexComponents.create(context.getColumnName(), descriptor);
     }
 
     @Override
@@ -176,7 +174,7 @@ public class MemtableIndexWriter implements ColumnIndexWriter
 
         try (MetadataWriter writer = new MetadataWriter(indexComponents.createOutput(indexComponents.meta)))
         {
-            SegmentMetadata.write(writer, Collections.singletonList(metadata), indexComponents.getEncryptionCompressor());
+            SegmentMetadata.write(writer, Collections.singletonList(metadata));
         }
 
         return numRows;

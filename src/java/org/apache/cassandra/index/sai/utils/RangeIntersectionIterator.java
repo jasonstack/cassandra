@@ -30,7 +30,6 @@ import com.google.common.collect.Iterators;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.PropertyConfiguration;
 import org.apache.cassandra.index.sai.Token;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.tracing.Tracing;
@@ -48,7 +47,7 @@ public class RangeIntersectionIterator
 
     // The cassandra.sai.intersection.clause.limit (default: 2) controls the maximum number of range iterator that
     // will be used in the final intersection of a query operation.
-    private static final int INTERSECTION_CLAUSE_LIMIT = PropertyConfiguration.getInteger("cassandra.sai.intersection.clause.limit", 2);
+    private static final int INTERSECTION_CLAUSE_LIMIT = Integer.getInteger("cassandra.sai.intersection.clause.limit", 2);
 
     static
     {

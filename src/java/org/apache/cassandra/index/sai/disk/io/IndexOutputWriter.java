@@ -39,18 +39,19 @@ public class IndexOutputWriter extends IndexOutput
 
     IndexOutputWriter(SequentialWriter out)
     {
-        super(out.getPath().getAbsolutePath(), out.getPath().getName());
+        super(out.getPath(), out.getPath());
         this.out = out;
     }
 
-    public void skipToEnd() throws IOException
+
+    public void skipBytes(long length) throws IOException
     {
-        this.out.skipToEnd();
+        this.out.skipBytes(length);
     }
 
     public String getPath()
     {
-        return out.getPath().getAbsolutePath();
+        return out.getPath();
     }
 
     @Override

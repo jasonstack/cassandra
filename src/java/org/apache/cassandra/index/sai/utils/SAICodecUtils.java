@@ -30,8 +30,6 @@ import org.apache.lucene.store.IndexOutput;
 
 import static org.apache.lucene.codecs.CodecUtil.CODEC_MAGIC;
 import static org.apache.lucene.codecs.CodecUtil.FOOTER_MAGIC;
-import static org.apache.lucene.codecs.PackageAccessor.readCRC;
-import static org.apache.lucene.codecs.PackageAccessor.writeCRC;
 
 public class SAICodecUtils
 {
@@ -170,5 +168,92 @@ public class SAICodecUtils
         {
             throw new CorruptIndexException("codec footer mismatch: unknown algorithmID: " + algorithmID, in);
         }
+    }
+
+    // Copied from Lucene CodecUtil as they are not public
+
+    /**
+     * Writes CRC32 value as a 64-bit long to the output.
+     * @throws IllegalStateException if CRC is formatted incorrectly (wrong bits set)
+     * @throws IOException if an i/o error occurs
+     */
+    static void writeCRC(IndexOutput output) throws IOException {
+        long value = output.getChecksum();
+        if ((value & 0xFFFFFFFF00000000L) != 0) {
+            throw new IllegalStateException("Illegal CRC-32 checksum: " + value + " (resource=" + output + ")");
+        }
+        output.writeLong(value);
+    }
+
+    /**
+     * Reads CRC32 value as a 64-bit long from the input.
+     * @throws CorruptIndexException if CRC is formatted incorrectly (wrong bits set)
+     * @throws IOException if an i/o error occurs
+     */
+    static long readCRC(IndexInput input) throws IOException {
+        long value = input.readLong();
+        if ((value & 0xFFFFFFFF00000000L) != 0) {
+            throw new CorruptIndexException("Illegal CRC-32 checksum: " + value, input);
+        }
+        return value;
+    }
+
+    // Copied from Lucene PackedInts as they are not public
+
+    public static int checkBlockSize(int blockSize, int minBlockSize, int maxBlockSize) {
+        if (blockSize >= minBlockSize && blockSize <= maxBlockSize) {
+            if ((blockSize & blockSize - 1) != 0) {
+                throw new IllegalArgumentException("blockSize must be a power of two, got " + blockSize);
+            } else {
+                return Integer.numberOfTrailingZeros(blockSize);
+            }
+        } else {
+            throw new IllegalArgumentException("blockSize must be >= " + minBlockSize + " and <= " + maxBlockSize + ", got " + blockSize);
+        }
+    }
+
+    public static int numBlocks(long size, int blockSize) {
+        int numBlocks = (int)(size / (long)blockSize) + (size % (long)blockSize == 0L ? 0 : 1);
+        if ((long)numBlocks * (long)blockSize < size) {
+            throw new IllegalArgumentException("size is too large for this block size");
+        } else {
+            return numBlocks;
+        }
+    }
+
+    // Copied from Lucene BlockPackedReaderIterator as they are not public
+
+    /**
+     * Same as DataInput.readVLong but supports negative values
+     */
+    public static long readVLong(DataInput in) throws IOException
+    {
+        byte b = in.readByte();
+        if (b >= 0) return b;
+        long i = b & 0x7FL;
+        b = in.readByte();
+        i |= (b & 0x7FL) << 7;
+        if (b >= 0) return i;
+        b = in.readByte();
+        i |= (b & 0x7FL) << 14;
+        if (b >= 0) return i;
+        b = in.readByte();
+        i |= (b & 0x7FL) << 21;
+        if (b >= 0) return i;
+        b = in.readByte();
+        i |= (b & 0x7FL) << 28;
+        if (b >= 0) return i;
+        b = in.readByte();
+        i |= (b & 0x7FL) << 35;
+        if (b >= 0) return i;
+        b = in.readByte();
+        i |= (b & 0x7FL) << 42;
+        if (b >= 0) return i;
+        b = in.readByte();
+        i |= (b & 0x7FL) << 49;
+        if (b >= 0) return i;
+        b = in.readByte();
+        i |= (b & 0xFFL) << 56;
+        return i;
     }
 }

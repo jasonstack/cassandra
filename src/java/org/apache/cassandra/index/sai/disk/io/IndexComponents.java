@@ -46,9 +46,6 @@ import org.apache.cassandra.index.sai.disk.v1.PostingsWriter;
 import org.apache.cassandra.index.sai.disk.v1.TrieTermsDictionaryWriter;
 import org.apache.cassandra.index.sai.utils.SAICodecUtils;
 import org.apache.cassandra.io.compress.BufferType;
-import org.apache.cassandra.io.compress.CompressionMetadata;
-import org.apache.cassandra.io.compress.EncryptedSequentialWriter;
-import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -56,7 +53,6 @@ import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.io.util.SequentialWriterOption;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.store.IndexInput;
@@ -104,7 +100,7 @@ public class IndexComponents
          * Term dictionary written by {@link TrieTermsDictionaryWriter} stores mappings of term and
          * file pointer to posting block on posting file.
          */
-        TERMS_DATA("TermsData", false, false, true),
+        TERMS_DATA("TermsData", false, false),
         /**
          * Stores postings written by {@link PostingsWriter}
          */
@@ -136,7 +132,6 @@ public class IndexComponents
         public final String name;
         private final boolean perSSTable;
         private final boolean marker;
-        private final boolean encryptable;
 
         NDIType(String name)
         {
@@ -153,20 +148,6 @@ public class IndexComponents
             this.name = name;
             this.perSSTable = perSSTable;
             this.marker = marker;
-            this.encryptable = false;
-        }
-
-        NDIType(String name, boolean perSSTable, boolean marker, boolean encryptable)
-        {
-            this.name = name;
-            this.perSSTable = perSSTable;
-            this.marker = marker;
-            this.encryptable = encryptable;
-        }
-
-        public boolean encryptable()
-        {
-            return encryptable;
         }
 
         public boolean perSSTable()
@@ -239,26 +220,22 @@ public class IndexComponents
     public final String indexName;
 
     private final SequentialWriterOption writerOption;
-    private final CompressionParams compressionParams;
 
     @VisibleForTesting
-    IndexComponents(String column, Descriptor descriptor, SequentialWriterOption sequentialWriterOption, CompressionParams compressionParams)
+    IndexComponents(String column, Descriptor descriptor, SequentialWriterOption sequentialWriterOption)
     {
-        this(column, -1, descriptor, sequentialWriterOption, compressionParams);
+        this(column, -1, descriptor, sequentialWriterOption);
     }
 
     private IndexComponents(String column,
                             int segmentNumber,
                             Descriptor descriptor,
-                            SequentialWriterOption sequentialWriterOption,
-                            CompressionParams compressionParams)
+                            SequentialWriterOption sequentialWriterOption)
     {
         this.writerOption = sequentialWriterOption;
         this.descriptor = descriptor;
         this.column = column;
         this.indexName = segmentName(column, segmentNumber);
-
-        this.compressionParams = compressionParams;
 
         termsData = NDIType.TERMS_DATA.newComponent(indexName);
         postingLists = NDIType.POSTING_LISTS.newComponent(indexName);
@@ -272,15 +249,14 @@ public class IndexComponents
     /**
      * Used to access per-sstable components when column name is not available
      */
-    public static IndexComponents perSSTable(Descriptor descriptor, CompressionParams params)
+    public static IndexComponents perSSTable(Descriptor descriptor)
     {
-        return new IndexComponents("", -1, descriptor, defaultWriterOption, params);
+        return new IndexComponents("", -1, descriptor, defaultWriterOption);
     }
 
     public static IndexComponents perSSTable(SSTableReader ssTableReader)
     {
-        CompressionParams params = CryptoUtils.getCompressionParams(ssTableReader);
-        return new IndexComponents("", -1, ssTableReader.descriptor, defaultWriterOption, params);
+        return new IndexComponents("", -1, ssTableReader.descriptor, defaultWriterOption);
     }
 
     /**
@@ -288,21 +264,20 @@ public class IndexComponents
      */
     public static IndexComponents create(String column, SSTableReader ssTableReader)
     {
-        CompressionParams params = CryptoUtils.getCompressionParams(ssTableReader);
-        return new IndexComponents(column, -1, ssTableReader.descriptor, defaultWriterOption, params);
+        return new IndexComponents(column, -1, ssTableReader.descriptor, defaultWriterOption);
     }
 
-    public static IndexComponents create(String column, Descriptor descriptor, CompressionParams params)
+    public static IndexComponents create(String column, Descriptor descriptor)
     {
-        return new IndexComponents(column, -1, descriptor, defaultWriterOption, params);
+        return new IndexComponents(column, -1, descriptor, defaultWriterOption);
     }
 
     /**
      * Used to access per-sstable and per-index components with segment number created during compaction
      */
-    public static IndexComponents create(String column, int segmentNumber, Descriptor descriptor, CompressionParams params)
+    public static IndexComponents create(String column, int segmentNumber, Descriptor descriptor)
     {
-        return new IndexComponents(column, segmentNumber, descriptor, defaultWriterOption, params);
+        return new IndexComponents(column, segmentNumber, descriptor, defaultWriterOption);
     }
 
     private static Set<IndexComponent> components(String column, NDIType... types)
@@ -329,7 +304,7 @@ public class IndexComponents
      */
     public static boolean isGroupIndexComplete(Descriptor descriptor)
     {
-        return descriptor.filenameFor(GROUP_COMPLETION_MARKER).exists();
+        return descriptor.fileFor(GROUP_COMPLETION_MARKER).exists();
     }
 
     /**
@@ -337,7 +312,7 @@ public class IndexComponents
      */
     public static boolean isColumnIndexComplete(Descriptor descriptor, String column)
     {
-        return isGroupIndexComplete(descriptor) && descriptor.filenameFor(NDIType.COLUMN_COMPLETION_MARKER.newComponent(column)).exists();
+        return isGroupIndexComplete(descriptor) && descriptor.fileFor(NDIType.COLUMN_COMPLETION_MARKER.newComponent(column)).exists();
     }
 
     /**
@@ -346,7 +321,7 @@ public class IndexComponents
      */
     public static boolean isColumnIndexEmpty(Descriptor descriptor, String column)
     {
-        long numIndexFiles = components(column, ALL_PER_COLUMN_COMPONENTS).stream().map(descriptor::filenameFor).filter(File::exists).count();
+        long numIndexFiles = components(column, ALL_PER_COLUMN_COMPONENTS).stream().map(descriptor::fileFor).filter(File::exists).count();
 
         return isColumnIndexComplete(descriptor, column) && (numIndexFiles == 1);
     }
@@ -401,7 +376,7 @@ public class IndexComponents
 
     public long sizeOf(Collection<IndexComponent> components)
     {
-        return components.stream().map(descriptor::filenameFor).filter(File::exists).mapToLong(File::length).sum();
+        return components.stream().map(descriptor::fileFor).filter(File::exists).mapToLong(File::length).sum();
     }
 
     /**
@@ -428,7 +403,7 @@ public class IndexComponents
     public static void deletePerSSTableIndexComponents(Descriptor descriptor)
     {
         PER_SSTABLE_COMPONENTS.stream()
-                              .map(descriptor::filenameFor)
+                              .map(descriptor::fileFor)
                               .filter(File::exists)
                               .forEach(IndexComponents::deleteComponent);
     }
@@ -440,7 +415,7 @@ public class IndexComponents
     {
         Stream.of(ALL_PER_COLUMN_COMPONENTS)
               .map(type -> type.newComponent(indexName))
-              .map(descriptor::filenameFor)
+              .map(descriptor::fileFor)
               .filter(File::exists)
               .forEach(IndexComponents::deleteComponent);
     }
@@ -460,30 +435,13 @@ public class IndexComponents
 
     public FileHandle createFileHandle(IndexComponent component)
     {
-        final File file = descriptor.filenameFor(component);
+        final File file = descriptor.fileFor(component);
+        String fileName = descriptor.filenameFor(component);
 
-        ICompressor encryptor = getEncryptionCompressor();
-
-        if (encryptor != null && component.ndiType.encryptable())
-        {
-            if (logger.isTraceEnabled())
-            {
-                logger.trace(logMessage("Opening file handle for {} ({} with compression {})"), file, FBUtilities.prettyPrintMemory(file.length()), compressionParams);
-            }
-            CompressionMetadata compressionMetadata = CompressionMetadata.encryptedOnly(compressionParams);
-            try (final FileHandle.Builder builder = new FileHandle.Builder(file).maybeEncrypted(true)
-                                                                                .mmapped(true)
-                                                                                .withCompressionMetadata(compressionMetadata))
-            {
-                return builder.complete();
-            }
-        }
         if (logger.isTraceEnabled())
-        {
             logger.trace(logMessage("Opening file handle for {} ({})"), file, FBUtilities.prettyPrintMemory(file.length()));
-        }
 
-        try (final FileHandle.Builder builder = new FileHandle.Builder(file).mmapped(true))
+        try (final FileHandle.Builder builder = new FileHandle.Builder(fileName).mmapped(true))
         {
             return builder.complete();
         }
@@ -535,7 +493,7 @@ public class IndexComponents
     private void validatePerColumnComponents(boolean isLiteral, boolean checksum) throws IOException
     {
         MetadataSource source = MetadataSource.loadColumnMetadata(this);
-        List<SegmentMetadata> segments = SegmentMetadata.load(source, getEncryptionCompressor());
+        List<SegmentMetadata> segments = SegmentMetadata.load(source);
 
         for (IndexComponent component : perColumnComponents(column, isLiteral))
         {
@@ -548,7 +506,7 @@ public class IndexComponents
                         SegmentMetadata metadata = segments.get(i);
                         boolean isLastSegment = i == segments.size() - 1;
 
-                        validateSegment(component, metadata, isLastSegment, checksum, getEncryptionCompressor() != null);
+                        validateSegment(component, metadata, isLastSegment, checksum);
                     }
                 }
                 else
@@ -559,32 +517,27 @@ public class IndexComponents
         }
     }
 
-    private void validateSegment(IndexComponent component, SegmentMetadata metadata, boolean isLastSegment, boolean checksum, boolean isEncrypted) throws IOException
+    private void validateSegment(IndexComponent component, SegmentMetadata metadata, boolean isLastSegment, boolean checksum) throws IOException
     {
         long offset = metadata.getIndexOffset(component);
         long length = metadata.getIndexLength(component);
 
         try (IndexInput input = openBlockingInput(component))
         {
-            // Even if the component is encryptable, we still need to check for corruption if it isn't actually encrypted:
-            if (!component.ndiType.encryptable() || !isEncrypted)
+            // Make sure there isn't any data appended incorrectly after the official end of the file:
+            if (isLastSegment && input.length() != offset + length)
             {
-                // Make sure there isn't any data appended incorrectly after the official end of the file:
-                if (isLastSegment && input.length() != offset + length)
-                {
-                    String message = logMessage(String.format("Corrupted last segment! offset (%d) + length (%d) != file "+
-                            "length (%s) isEncrypted: %s component.ndiType.encryptable: %s component.ndiType: %s",
-                            offset, length, input.length(), isEncrypted, component.ndiType.encryptable(), component.ndiType.toString()));
-                    throw new CorruptIndexException(message, descriptor.toString());
-                }
+                String message = logMessage(String.format("Corrupted last segment! offset (%d) + length (%d) != file length (%s)", offset, length, input.length()));
+                throw new CorruptIndexException(message, descriptor.toString());
             }
 
-            IndexInput slice = input.slice(String.format("%s with offset=%d and length=%d]", input.toString(), offset, length), offset, length);
-
-            if (checksum)
-                SAICodecUtils.validateChecksum(slice);
-            else
-                SAICodecUtils.validate(slice);
+            try (IndexInput slice = input.slice(String.format("%s with offset=%d and length=%d]", input.toString(), offset, length), offset, length))
+            {
+                if (checksum)
+                    SAICodecUtils.validateChecksum(slice);
+                else
+                    SAICodecUtils.validate(slice);
+            }
         }
         catch (IOException e)
         {
@@ -623,13 +576,16 @@ public class IndexComponents
         return IndexInputReader.create(handle);
     }
 
+    @SuppressWarnings("resource")
     public IndexInput openBlockingInput(IndexComponent component)
     {
-        final File file = descriptor.filenameFor(component);
+        String fileName = descriptor.filenameFor(component);
+        final File file = new File(fileName);
+
         if (logger.isTraceEnabled())
             logger.trace(logMessage("Opening blocking index input for file {} ({})"), file, FBUtilities.prettyPrintMemory(file.length()));
 
-        try (final FileHandle.Builder builder = new FileHandle.Builder(file).maybeEncrypted(compressionParams != null && component.ndiType.encryptable))
+        try (final FileHandle.Builder builder = new FileHandle.Builder(fileName))
         {
             final FileHandle fileHandle = builder.complete();
             final RandomAccessReader randomReader = fileHandle.createReader();
@@ -645,102 +601,39 @@ public class IndexComponents
 
     public IndexOutputWriter createOutput(IndexComponent component, boolean append) throws IOException
     {
-        final File file = descriptor.filenameFor(component);
+        final File file = descriptor.fileFor(component);
 
         if (logger.isTraceEnabled())
             logger.trace(logMessage("Creating sstable attached index output for component {} on file {}..."), component, file);
-        IndexOutputWriter writer = createOutput(file, component.ndiType.encryptable());
+        IndexOutputWriter writer = createOutput(file);
 
         if (append)
         {
-            writer.skipToEnd();
+            writer.skipBytes(file.length());
         }
 
         return writer;
     }
 
-    public CompressionParams getCompressionParams()
-    {
-        return compressionParams;
-    }
-
-    public ICompressor getEncryptionCompressor()
-    {
-        ICompressor compressor = compressionParams != null ? compressionParams.getSstableCompressor() : null;
-        return compressor != null ? compressor.encryptionOnly() : null;
-    }
-
-    public IndexOutputWriter createOutput(File file, boolean encryptable)
-    {
-        assert writerOption.finishOnClose() : "IndexOutputWriter relies on close() to sync with disk.";
-
-        if (encryptable)
-        {
-            ICompressor encryptor = getEncryptionCompressor();
-
-            if (encryptor != null)
-            {
-                return new IndexOutputWriter(new EncryptedIncrementalChecksumSequentialWriter(file, encryptor));
-            }
-        }
-        return new IndexOutputWriter(new IncrementalChecksumSequentialWriter(file));
-    }
-
-    @VisibleForTesting
+    @SuppressWarnings("resource")
     public IndexOutputWriter createOutput(File file)
     {
-        return createOutput(file, false);
+        return new IndexOutputWriter(new IncrementalChecksumSequentialWriter(file));
     }
 
     public void createGroupCompletionMarker() throws IOException
     {
-        Files.touch(descriptor.filenameFor(groupCompletionMarker));
+        Files.touch(descriptor.fileFor(groupCompletionMarker));
     }
 
     public void createColumnCompletionMarker() throws IOException
     {
-        Files.touch(descriptor.filenameFor(columnCompletionMarker));
+        Files.touch(descriptor.fileFor(columnCompletionMarker));
     }
 
     interface ChecksumWriter
     {
         long getChecksum();
-    }
-
-    class EncryptedIncrementalChecksumSequentialWriter extends EncryptedSequentialWriter implements ChecksumWriter
-    {
-        private final CRC32 checksum = new CRC32();
-
-        EncryptedIncrementalChecksumSequentialWriter(File file, ICompressor encryptor)
-        {
-            super(file, writerOption, encryptor);
-        }
-
-        @Override
-        public void writeByte(int b) throws IOException
-        {
-            super.writeByte(b);
-            checksum.update(b);
-        }
-
-        @Override
-        public void write(byte[] b) throws IOException
-        {
-            super.write(b);
-            checksum.update(b);
-        }
-
-        @Override
-        public void write(byte[] b, int off, int len) throws IOException
-        {
-            super.write(b, off, len);
-            checksum.update(b, off, len);
-        }
-
-        public long getChecksum()
-        {
-            return checksum.getValue();
-        }
     }
 
     class IncrementalChecksumSequentialWriter extends SequentialWriter implements ChecksumWriter

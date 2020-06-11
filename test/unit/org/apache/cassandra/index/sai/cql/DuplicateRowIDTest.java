@@ -24,15 +24,12 @@ import java.util.List;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
+import com.datastax.driver.core.Row;
 import org.apache.cassandra.index.sai.SAITester;
-import com.datastax.oss.driver.api.core.cql.Row;
 
 import static org.junit.Assert.assertEquals;
 
-@Category(NightlyOnly.class)
 public class DuplicateRowIDTest extends SAITester
 {
     @Before

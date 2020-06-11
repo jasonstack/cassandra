@@ -28,6 +28,7 @@ import org.apache.cassandra.index.sai.SSTableQueryContext;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.disk.io.IndexInputReader;
 import org.apache.cassandra.index.sai.utils.LongArray;
+import org.apache.cassandra.index.sai.utils.SAICodecUtils;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.RandomAccessReader;
@@ -36,9 +37,6 @@ import org.apache.lucene.store.IndexInput;
 
 import static org.apache.cassandra.index.sai.utils.SAICodecUtils.validate;
 import static org.apache.lucene.util.BitUtil.zigZagDecode;
-import static org.apache.lucene.util.packed.PackageAccessor.checkBlockSize;
-import static org.apache.lucene.util.packed.PackageAccessor.numBlocks;
-import static org.apache.lucene.util.packed.PackageAccessor.readVLong;
 
 /**
  * Provides non-blocking, random access to a stream written with {@link BlockPackedWriter}.
@@ -61,16 +59,15 @@ public class BlockPackedReader implements LongArray.Factory
 
         this.valueCount = meta.valueCount;
 
-        blockShift = checkBlockSize(meta.blockSize, AbstractBlockPackedWriter.MIN_BLOCK_SIZE, AbstractBlockPackedWriter.MAX_BLOCK_SIZE);
+        blockShift = SAICodecUtils.checkBlockSize(meta.blockSize, AbstractBlockPackedWriter.MIN_BLOCK_SIZE, AbstractBlockPackedWriter.MAX_BLOCK_SIZE);
         blockMask = meta.blockSize - 1;
-        final int numBlocks = numBlocks(valueCount, meta.blockSize);
+        final int numBlocks = SAICodecUtils.numBlocks(valueCount, meta.blockSize);
         blockBitsPerValue = new byte[numBlocks];
         blockOffsets = new long[numBlocks];
         minValues = new long[numBlocks];
 
-        try (final RandomAccessReader reader = this.file.createReader())
+        try (IndexInputReader in = IndexInputReader.create(this.file.createReader()))
         {
-            final IndexInputReader in = IndexInputReader.create(reader);
             validate(in);
             in.seek(meta.blockMetaOffset);
 
@@ -84,7 +81,7 @@ public class BlockPackedReader implements LongArray.Factory
                 }
                 if ((token & AbstractBlockPackedWriter.MIN_VALUE_EQUALS_0) == 0)
                 {
-                    long val = zigZagDecode(1L + readVLong(in));
+                    long val = zigZagDecode(1L + SAICodecUtils.readVLong(in));
                     minValues[i] = val;
                 }
                 else
@@ -113,6 +110,7 @@ public class BlockPackedReader implements LongArray.Factory
         return openTokenReader(0, null);
     }
 
+    @SuppressWarnings("resource")
     @Override
     public LongArray openTokenReader(long sstableRowId, SSTableQueryContext context)
     {

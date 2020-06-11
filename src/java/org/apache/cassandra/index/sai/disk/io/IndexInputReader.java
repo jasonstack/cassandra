@@ -20,8 +20,6 @@
  */
 package org.apache.cassandra.index.sai.disk.io;
 
-
-import java.io.File;
 import java.io.IOException;
 
 import org.apache.cassandra.io.compress.CorruptBlockException;
@@ -38,7 +36,7 @@ public class IndexInputReader extends IndexInput
 
     private IndexInputReader(RandomAccessReader input, Runnable doOnClose)
     {
-        super(input.getPath().getName());
+        super(input.getPath());
         this.input = input;
         this.doOnClose = doOnClose;
     }
@@ -53,6 +51,7 @@ public class IndexInputReader extends IndexInput
         return new IndexInputReader(input, doOnClose);
     }
 
+    @SuppressWarnings("resource")
     static IndexInputReader create(FileHandle handle)
     {
         RandomAccessReader reader = handle.createReader();
@@ -62,11 +61,6 @@ public class IndexInputReader extends IndexInput
     public RandomAccessReader reader()
     {
         return input;
-    }
-
-    public File getFile()
-    {
-        return input.getPath();
     }
 
     @Override
@@ -84,7 +78,7 @@ public class IndexInputReader extends IndexInput
         }
         catch (CorruptBlockException ex)
         {
-            throw new CorruptIndexException(input.getPath().getAbsolutePath(), "Corrupted block", ex);
+            throw new CorruptIndexException(input.getPath(), "Corrupted block", ex);
         }
     }
 
@@ -101,7 +95,7 @@ public class IndexInputReader extends IndexInput
         }
         catch (CorruptBlockException ex)
         {
-            throw new CorruptIndexException(input.getPath().getAbsolutePath(), "Corrupted block", ex);
+            throw new CorruptIndexException(input.getPath(), "Corrupted block", ex);
         }
     }
 
@@ -118,7 +112,7 @@ public class IndexInputReader extends IndexInput
         }
         catch (CorruptBlockException ex)
         {
-            throw new CorruptIndexException(input.getPath().getAbsolutePath(), "Corrupted block", ex);
+            throw new CorruptIndexException(input.getPath(), "Corrupted block", ex);
         }
     }
 
@@ -135,7 +129,7 @@ public class IndexInputReader extends IndexInput
         }
         catch (CorruptBlockException ex)
         {
-            throw new CorruptIndexException(input.getPath().getAbsolutePath(), "Corrupted block", ex);
+            throw new CorruptIndexException(input.getPath(), "Corrupted block", ex);
         }
     }
 
@@ -167,15 +161,15 @@ public class IndexInputReader extends IndexInput
     @Override
     public long length()
     {
-        return input.seekableLength();
+        return input.length();
     }
 
     @Override
     public IndexInput slice(String sliceDescription, long offset, long length) throws CorruptIndexException
     {
-        if (offset < 0 || length < 0 || offset + length > input.seekableLength())
+        if (offset < 0 || length < 0 || offset + length > input.length())
         {
-            throw new CorruptIndexException("Invalid slice! Offset: " + offset + ", Length: " + length + ", Input Length: " + input.seekableLength(), this);
+            throw new CorruptIndexException("Invalid slice! Offset: " + offset + ", Length: " + length + ", Input Length: " + input.length(), this);
         }
 
         return new IndexInputReader(input, doOnClose)

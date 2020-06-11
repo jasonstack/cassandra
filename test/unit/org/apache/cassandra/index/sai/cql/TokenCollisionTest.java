@@ -26,10 +26,11 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import com.datastax.driver.core.Row;
 import org.apache.cassandra.index.sai.SAITester;
-import com.datastax.oss.driver.api.core.cql.Row;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.LengthPartitioner;
+import org.apache.cassandra.service.StorageService;
 
 import static org.junit.Assert.assertEquals;
 
@@ -39,6 +40,7 @@ public class TokenCollisionTest extends SAITester
     public static void setupCQLTester()
     {
         DatabaseDescriptor.setPartitionerUnsafe(LengthPartitioner.instance);
+        StorageService.instance.setPartitionerUnsafe(LengthPartitioner.instance);
     }
 
     @Before

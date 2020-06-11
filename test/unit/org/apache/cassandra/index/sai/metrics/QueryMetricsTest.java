@@ -24,10 +24,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import javax.management.InstanceNotFoundException;
 
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import com.datastax.oss.driver.api.core.cql.ResultSet;
-import org.apache.cassandra.categories.NightlyOnly;
+import com.datastax.driver.core.ResultSet;
 
 import static org.apache.cassandra.index.sai.metrics.TableQueryMetrics.TABLE_QUERY_METRIC_TYPE;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,13 +35,12 @@ import static org.junit.Assert.assertTrue;
 public class QueryMetricsTest extends AbstractMetricsTest
 {
     private static final String CREATE_TABLE_TEMPLATE = "CREATE TABLE %s.%s (id1 TEXT PRIMARY KEY, v1 INT, v2 TEXT) WITH compaction = " +
-            "{'class' : 'SizeTieredCompactionStrategy', 'enabled' : false } AND nodesync = {'enabled' : 'false'}";
+            "{'class' : 'SizeTieredCompactionStrategy', 'enabled' : false }";
     private static final String CREATE_INDEX_TEMPLATE = "CREATE CUSTOM INDEX IF NOT EXISTS %s ON %s.%s(%s) USING 'StorageAttachedIndex'";
 
     private static final String PER_QUERY_METRIC_TYPE = "PerQuery";
     private static final String GLOBAL_METRIC_TYPE = "ColumnQueryMetrics";
 
-    @Category(NightlyOnly.class)
     @Test
     public void testSameIndexNameAcrossKeyspaces() throws Throwable
     {
@@ -80,7 +77,6 @@ public class QueryMetricsTest extends AbstractMetricsTest
         assertEquals(1L, getTableQueryMetrics(keyspace2, table, "TotalQueriesCompleted"));
     }
 
-    @Category(NightlyOnly.class)
     @Test
     public void testMetricRelease() throws Throwable
     {
@@ -302,7 +298,6 @@ public class QueryMetricsTest extends AbstractMetricsTest
         waitForEquals(objectNameNoIndex("TotalRowsFiltered", keyspace, table, TABLE_QUERY_METRIC_TYPE), 3);
     }
 
-    @Category(NightlyOnly.class)
     @Test
     public void testKDTreeQueryEarlyExit() throws Throwable
     {

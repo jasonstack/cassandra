@@ -24,13 +24,10 @@ import java.util.LinkedList;
 import java.util.List;
 
 import org.junit.Before;
-import org.junit.experimental.categories.Category;
 import org.junit.runners.Parameterized;
 
-import org.apache.cassandra.categories.NightlyOnly;
 import org.apache.cassandra.inject.Injections;
 
-@Category(NightlyOnly.class)
 public class SingleNodeQueryTest extends AbstractIndexQueryTest
 {
     @Before

@@ -22,7 +22,6 @@ package org.apache.cassandra.index.sai.disk;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import javax.validation.constraints.NotNull;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -79,7 +78,6 @@ public class ImmutableOneDimPointValuesTest
         pointValues.intersect(assertingVisitor(minTerm));
     }
 
-    @NotNull
     private PointValues.IntersectVisitor assertingVisitor(int minTerm)
     {
         return new PointValues.IntersectVisitor()
@@ -99,7 +97,7 @@ public class ImmutableOneDimPointValuesTest
                 final ByteComparable actualTerm = ByteComparable.fixedLength(packedValue);
                 final ByteComparable expectedTerm = ByteComparable.of(term);
 
-                assertEquals(0, ByteComparable.compare(actualTerm, expectedTerm, ByteComparable.Version.DSE68));
+                assertEquals(0, ByteComparable.compare(actualTerm, expectedTerm, ByteComparable.Version.OSS41));
                 assertEquals(postingCounter, docID);
 
                 if (postingCounter >= 2)

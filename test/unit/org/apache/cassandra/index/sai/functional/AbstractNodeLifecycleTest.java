@@ -29,6 +29,7 @@ import java.util.Set;
 import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 
 import org.apache.cassandra.index.sai.StorageAttachedIndexGroup;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
@@ -39,7 +40,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.SSTable;
-import org.apache.cassandra.schema.SchemaManager;
+import org.apache.cassandra.schema.Schema;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -50,6 +51,7 @@ import static org.junit.Assert.assertTrue;
  * The idea here is that this class includes only building blocks for tests
  * and does not include any junit specific code (!)
  */
+@Ignore
 public abstract class AbstractNodeLifecycleTest extends AbstractMetricsTest
 {
     static final Injections.Counter perSSTableValidationCounter =
@@ -135,10 +137,10 @@ public abstract class AbstractNodeLifecycleTest extends AbstractMetricsTest
 
     void verifySSTableComponents(String table, boolean indexComponentsExist) throws Exception
     {
-        ColumnFamilyStore cfs = Objects.requireNonNull(SchemaManager.instance.getKeyspaceInstance(KEYSPACE)).getColumnFamilyStore(table);
+        ColumnFamilyStore cfs = Objects.requireNonNull(Schema.instance.getKeyspaceInstance(KEYSPACE)).getColumnFamilyStore(table);
         for (SSTable sstable : cfs.getLiveSSTables())
         {
-            Set<Component> components = sstable.components();
+            Set<Component> components = sstable.components;
             StorageAttachedIndexGroup group = StorageAttachedIndexGroup.getIndexGroup(cfs);
             Set<Component> ndiComponents = group == null ? Collections.emptySet() : group.getComponents();
 

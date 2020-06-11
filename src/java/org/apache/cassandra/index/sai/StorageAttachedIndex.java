@@ -37,6 +37,7 @@ import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -48,11 +49,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.codahale.metrics.Gauge;
-import io.reactivex.Completable;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQL3Type;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.cql3.statements.schema.IndexTarget;
+import org.apache.cassandra.db.CassandraWriteContext;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionTime;
@@ -60,12 +61,13 @@ import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.db.RangeTombstone;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.RegularAndStaticColumns;
+import org.apache.cassandra.db.WriteContext;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
-import org.apache.cassandra.db.compaction.TableOperation.StopTrigger;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
@@ -100,7 +102,6 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.DefaultNameFactory;
 import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.StorageService;
@@ -329,8 +330,7 @@ public class StorageAttachedIndex implements Index
         CompactionManager.instance.interruptCompactionFor(Collections.singleton(baseCfs.metadata()),
                                                           OperationType.REWRITES_SSTABLES,
                                                           Predicates.alwaysTrue(),
-                                                          true,
-                                                          StopTrigger.OTHER);
+                                                          true);
 
         // Force another flush to make sure on disk index is generated for memtable data before marking it queryable.
         // In case of offline scrub, there is no live memtables.
@@ -507,15 +507,16 @@ public class StorageAttachedIndex implements Index
     }
 
     @Override
-    public boolean supportsBackup()
-    {
-        return true;
-    }
-
-    @Override
     public AbstractType<?> customExpressionValueType()
     {
         return null;
+    }
+
+    @Override
+    public RowFilter getPostIndexQueryFilter(RowFilter filter)
+    {
+        // it should be executed from the SAI query plan, this is only used by the singleton index query plan
+        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -536,11 +537,11 @@ public class StorageAttachedIndex implements Index
     {}
 
     @Override
-    public Indexer indexerFor(DecoratedKey key, RegularAndStaticColumns columns, int nowInSec, OpOrder.Group opGroup, IndexTransaction.Type transactionType, Memtable memtable)
+    public Indexer indexerFor(DecoratedKey key, RegularAndStaticColumns columns, int nowInSec, WriteContext writeContext, IndexTransaction.Type transactionType, Memtable memtable)
     {
         if (transactionType == IndexTransaction.Type.UPDATE)
         {
-            return new UpdateIndexer(key, memtable);
+            return new UpdateIndexer(key, memtable, writeContext);
         }
 
         // we are only interested in the data from Memtable
@@ -586,29 +587,30 @@ public class StorageAttachedIndex implements Index
     {
         private final DecoratedKey key;
         private final Memtable mt;
+        private final WriteContext writeContext;
 
-        UpdateIndexer(DecoratedKey key, Memtable mt)
+        UpdateIndexer(DecoratedKey key, Memtable mt, WriteContext writeContext)
         {
             this.key = key;
             this.mt = mt;
+            this.writeContext = writeContext;
         }
 
         @Override
-        public Completable insertRow(Row row)
+        public void insertRow(Row row)
         {
-            return adjustMemtableSize(context.index(key, row, mt));
+            adjustMemtableSize(context.index(key, row, mt), CassandraWriteContext.fromContext(writeContext).getGroup());
         }
 
         @Override
-        public Completable updateRow(Row oldRow, Row newRow)
+        public void updateRow(Row oldRow, Row newRow)
         {
-            return insertRow(newRow);
+            insertRow(newRow);
         }
 
-        Completable adjustMemtableSize(long additionalSpace)
+        void adjustMemtableSize(long additionalSpace, OpOrder.Group opGroup)
         {
-            mt.allocateExtraOnHeap(additionalSpace);
-            return Completable.complete();
+            mt.allocateExtraOnHeap(additionalSpace, opGroup);
         }
     }
 
@@ -618,27 +620,23 @@ public class StorageAttachedIndex implements Index
         public void begin() { }
 
         @Override
-        public Completable finish()
+        public void finish()
         {
-            return Completable.complete();
         }
 
         @Override
-        public Completable partitionDelete(DeletionTime dt)
+        public void partitionDelete(DeletionTime dt)
         {
-            return Completable.complete();
         }
 
         @Override
-        public Completable rangeTombstone(RangeTombstone rt)
+        public void rangeTombstone(RangeTombstone rt)
         {
-            return Completable.complete();
         }
 
         @Override
-        public Completable removeRow(Row row)
+        public void removeRow(Row row)
         {
-            return Completable.complete();
         }
     }
 
@@ -650,13 +648,6 @@ public class StorageAttachedIndex implements Index
     }
 
     @Override
-    public RowFilter postIndexQueryFilter(RowFilter rowFilter)
-    {
-        // it should be executed from the SAI query plan, this is only used by the singleton index query plan
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public SSTableFlushObserver getFlushObserver(Descriptor descriptor, LifecycleNewTracker tracker)
     {
         throw new UnsupportedOperationException("Storage-attached index flush observers should never be created directly.");
@@ -664,8 +655,7 @@ public class StorageAttachedIndex implements Index
 
     public ColumnIndexWriter newIndexWriter(Descriptor descriptor,
                                             LifecycleNewTracker tracker,
-                                            RowMapping rowMapping,
-                                            CompressionParams compressionParams)
+                                            RowMapping rowMapping)
     {
         // If we're not flushing or we haven't yet started the initialization build, flush from SSTable contents.
         if (tracker.opType() != OperationType.FLUSH || !initBuildStarted)
@@ -673,16 +663,10 @@ public class StorageAttachedIndex implements Index
             NamedMemoryLimiter limiter = SEGMENT_BUILD_MEMORY_LIMITER;
             logger.info(context.logMessage("Starting a compaction index build. Global segment memory usage: {}"), prettyPrintMemory(limiter.currentBytesUsed()));
 
-            return new SSTableIndexWriter(descriptor, context, limiter, () -> valid, compressionParams);
+            return new SSTableIndexWriter(descriptor, context, limiter, () -> valid);
         }
 
-        return new MemtableIndexWriter(context.getPendingMemtableIndex(tracker), descriptor, context, rowMapping, compressionParams);
-    }
-
-    @Override
-    public Set<Component> getComponents()
-    {
-        return new HashSet<>(IndexComponents.perColumnComponents(context.getColumnName(), context.isString()));
+        return new MemtableIndexWriter(context.getPendingMemtableIndex(tracker), descriptor, context, rowMapping);
     }
 
     @Override
@@ -717,5 +701,11 @@ public class StorageAttachedIndex implements Index
     {
         IndexComponents components = IndexComponents.create(context.getColumnName(), sstable);
         components.deleteColumnIndex();
+    }
+
+    @Override
+    public Set<Component> getComponents()
+    {
+        return new HashSet<>(IndexComponents.perColumnComponents(context.getColumnName(), context.isString()));
     }
 }

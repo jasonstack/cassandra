@@ -75,6 +75,7 @@ public class SSTableContext extends SharedCloseableImpl
         this.keyFetcher = copy.keyFetcher;
     }
 
+    @SuppressWarnings("resource")
     public static SSTableContext create(SSTableReader sstable)
     {
         IndexComponents groupComponents = IndexComponents.perSSTable(sstable);
@@ -205,7 +206,7 @@ public class SSTableContext extends SharedCloseableImpl
 
     public interface KeyFetcher
     {
-        DecoratedKey apply(RandomAccessReader reader, long keyOffset);
+        DecoratedKey apply(RandomAccessReader keyReader, long keyOffset);
 
         /**
          * Create a shared RAR for all tokens in the same segment.
@@ -226,13 +227,13 @@ public class SSTableContext extends SharedCloseableImpl
         @Override
         public RandomAccessReader createReader()
         {
-            return sstable.openDataReader();
+            return sstable.openIndexReader();
         }
 
         @Override
-        public DecoratedKey apply(RandomAccessReader reader, long keyOffset)
+        public DecoratedKey apply(RandomAccessReader keyReader, long keyOffset)
         {
-            assert reader != null : "RandomAccessReader null";
+            assert keyReader != null : "RandomAccessReader null";
 
             // If the returned offset is the sentinel value, we've seen this offset
             // before or we've run out of valid keys due to ZCS:
@@ -242,7 +243,7 @@ public class SSTableContext extends SharedCloseableImpl
             try
             {
                 // can return null
-                return sstable.keyAt(reader, keyOffset);
+                return sstable.keyAt(keyReader, keyOffset);
             }
             catch (IOException e)
             {

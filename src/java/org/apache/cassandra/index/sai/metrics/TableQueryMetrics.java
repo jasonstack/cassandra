@@ -52,13 +52,13 @@ public class TableQueryMetrics extends AbstractMetrics
 
         perQueryMetrics = new PerQueryMetrics(table);
 
-        totalPartitionReads = Metrics.counter(createMetricName("TotalPartitionReads"), false);
-        totalRowsFiltered = Metrics.counter(createMetricName("TotalRowsFiltered"), false);
-        totalQueriesCompleted = Metrics.counter(createMetricName("TotalQueriesCompleted"), false);
-        totalQueryTimeouts = Metrics.counter(createMetricName("TotalQueryTimeouts"), false);
+        totalPartitionReads = Metrics.counter(createMetricName("TotalPartitionReads"));
+        totalRowsFiltered = Metrics.counter(createMetricName("TotalRowsFiltered"));
+        totalQueriesCompleted = Metrics.counter(createMetricName("TotalQueriesCompleted"));
+        totalQueryTimeouts = Metrics.counter(createMetricName("TotalQueryTimeouts"));
 
-        tokenSkippingLookups = Metrics.meter(createMetricName("Lookups", "TokenSkipping"), false);
-        tokenSkippingCacheHits = Metrics.meter(createMetricName("CacheHits", "TokenSkipping"), false);
+        tokenSkippingLookups = Metrics.meter(createMetricName("Lookups", "TokenSkipping"));
+        tokenSkippingCacheHits = Metrics.meter(createMetricName("CacheHits", "TokenSkipping"));
     }
 
     public void record(QueryContext queryContext)

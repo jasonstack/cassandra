@@ -32,14 +32,11 @@ import java.util.stream.LongStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import com.datastax.oss.driver.api.core.cql.ResultSet;
-import com.datastax.oss.driver.api.core.servererrors.InvalidConfigurationInQueryException;
-import com.datastax.oss.driver.api.core.servererrors.InvalidQueryException;
-import com.datastax.oss.driver.api.core.servererrors.ReadFailureException;
-import com.datastax.oss.driver.api.core.servererrors.ReadTimeoutException;
-import org.apache.cassandra.categories.NightlyOnly;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.exceptions.InvalidConfigurationInQueryException;
+import com.datastax.driver.core.exceptions.InvalidQueryException;
+import com.datastax.driver.core.exceptions.ReadFailureException;
 import org.apache.cassandra.cql3.CQL3Type;
 import org.apache.cassandra.cql3.restrictions.IndexRestrictions;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -47,9 +44,6 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
-import org.apache.cassandra.db.monitoring.AbortedOperationException;
-import org.apache.cassandra.db.monitoring.Monitor;
-import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
@@ -77,7 +71,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.when;
 
-@Category(NightlyOnly.class)
 public class NativeIndexDDLTest extends SAITester
 {
     private static final Injections.Counter NDI_CREATION_COUNTER = Injections.newCounter("IndexCreationCounter")
@@ -102,11 +95,6 @@ public class NativeIndexDDLTest extends SAITester
                                                                             .add(InvokePointBuilder.newInvokePoint().onClass(NumericValuesWriter.class).onMethod("add"))
                                                                             .add(ActionBuilder.newActionBuilder().actions().doThrow(IOException.class, Expression.quote("Injected failure!")))
                                                                             .build();
-
-    private static final Injection throwReadTimeoutException = Injections.newCustom("throw_read_timeout")
-                                                                               .add(InvokePointBuilder.newInvokePoint().onClass(Monitor.class).onMethod("check"))
-                                                                               .add(ActionBuilder.newActionBuilder().actions().doThrow(AbortedOperationException.class, new Object[0]))
-                                                                               .build();
 
     private static final Injection FAIL_INDEX_GC_TRANSACTION = Injections.newCustom("fail_index_gc_transaction")
                                                                                .add(InvokePointBuilder.newInvokePoint().onClass("org.apache.cassandra.index.SecondaryIndexManager$IndexGCTransaction")
@@ -157,7 +145,6 @@ public class NativeIndexDDLTest extends SAITester
             {
                 assertFalse("Index creation on supported type " + cql3Type + " should have succeeded.", supported);
                 // InvalidConfigurationInQueryException is sub-class of InvalidQueryException
-                assertFalse(Throwables.isCausedBy(e, InvalidConfigurationInQueryException.class));
                 assertTrue(Throwables.isCausedBy(e, InvalidQueryException.class));
             }
         }
@@ -369,29 +356,6 @@ public class NativeIndexDDLTest extends SAITester
     }
 
     @Test
-    public void testReadTimeoutExceptionUsingMonitor() throws Throwable
-    {
-        createTable(CREATE_TABLE_TEMPLATE);
-        createIndex(String.format(CREATE_INDEX_TEMPLATE, "v1"));
-
-        execute("INSERT INTO %s (id1, v1, v2) VALUES ('0', 0, '0')");
-        flush();
-
-        try
-        {
-            // Inject failure
-            Injections.inject(throwReadTimeoutException);
-
-            executeNet("SELECT id1 FROM %s WHERE v1>=0");
-            fail("Expect read timeout");
-        }
-        catch (ReadTimeoutException e)
-        {
-            // expected
-        }
-    }
-
-    @Test
     public void shouldCreateIndexWithAlias() throws Throwable
     {
         createTable("CREATE TABLE %s (id text PRIMARY KEY, val text)");
@@ -577,9 +541,8 @@ public class NativeIndexDDLTest extends SAITester
         Injections.inject(forceFlushPause);
         createIndex(String.format(CREATE_INDEX_TEMPLATE, "v1"));
 
-        assertThatThrownBy(() -> executeNet("SELECT id1 FROM %s WHERE v1>=0"))
-                .isInstanceOf(ReadFailureException.class)
-                .satisfies(t -> assertFailureReason((ReadFailureException) t, RequestFailureReason.INDEX_NOT_AVAILABLE));
+        // FailuresMap is not support for protocol v4.
+        assertThatThrownBy(() -> executeNet("SELECT id1 FROM %s WHERE v1>=0")).isInstanceOf(ReadFailureException.class);
     }
 
     @Test
@@ -594,13 +557,13 @@ public class NativeIndexDDLTest extends SAITester
         flush();
 
         Injections.inject(failNDIInitialializaion);
+        assertEquals(0, INDEX_BUILD_COUNTER.get());
         createIndex(String.format(CREATE_INDEX_TEMPLATE, "v1"));
         waitForAssert(() -> assertEquals(1, INDEX_BUILD_COUNTER.get()), "Waiting for initial build submission...");
         waitForCompactions();
 
-        assertThatThrownBy(() -> executeNet("SELECT id1 FROM %s WHERE v1>=0"))
-                .isInstanceOf(ReadFailureException.class)
-                .satisfies(t -> assertFailureReason((ReadFailureException) t, RequestFailureReason.INDEX_NOT_AVAILABLE));
+        // FailuresMap is not support for protocol v4.
+        assertThatThrownBy(() -> executeNet("SELECT id1 FROM %s WHERE v1>=0")).isInstanceOf(ReadFailureException.class);
     }
 
     @Test
@@ -974,7 +937,7 @@ public class NativeIndexDDLTest extends SAITester
             createIndex(String.format(CREATE_INDEX_TEMPLATE, "v1"));
             // two index builders running in different compaction threads because of parallelised index initial build
             waitForAssert(() -> assertEquals(2, INDEX_BUILD_COUNTER.get()), "Waiting for initial build submission...");
-            waitForCompactions();
+            waitForAssert(() -> assertEquals(0, getCompactionTasks()), "Waiting for initial build stopped...");
 
             // SSTable-level token/offset file(s) should be removed, while column-specific files never existed:
             verifyIndexFiles(0, 0);
@@ -1133,7 +1096,7 @@ public class NativeIndexDDLTest extends SAITester
         delayIndexBuilderCompletion.disable();
 
         verifySSTableIndexes(indexName, 0);
-        assertFalse("Expect index not built", SystemKeyspace.isIndexBuilt(KEYSPACE, indexName).get());
+        assertFalse("Expect index not built", SystemKeyspace.isIndexBuilt(KEYSPACE, indexName));
 
         // create index again, it should succeed
         indexName = createIndex(String.format(CREATE_INDEX_TEMPLATE, "v1"));
@@ -1159,13 +1122,12 @@ public class NativeIndexDDLTest extends SAITester
         }
         flush();
 
-        Injections.Barrier delayIndexBuilderCompletion = Injections.newBarrierAwait("delayIndexBuilder", 2, true)
+        Injections.Barrier delayIndexBuilderCompletion = Injections.newBarrierAwait("delayIndexBuilder", 1, true)
                                                                                .add(InvokePointBuilder.newInvokePoint().onClass(StorageAttachedIndexBuilder.class).onMethod("build"))
                                                                                .build();
-
         Injections.inject(delayIndexBuilderCompletion);
+
         String indexv1Name = createIndex(String.format(CREATE_INDEX_TEMPLATE, "v1"));
-        String indexv2Name = createIndex(String.format(CREATE_INDEX_TEMPLATE, "v2"));
 
         // Stop initial index build by interrupting active and pending compactions
         int attempt = 10;
@@ -1186,7 +1148,6 @@ public class NativeIndexDDLTest extends SAITester
 
         // initial index builder should have stopped abruptly resulting in the index not being queryable
         verifyInitialIndexFailed(indexv1Name);
-        verifyInitialIndexFailed(indexv2Name);
         assertFalse(isIndexQueryable());
 
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(currentTable());
@@ -1203,19 +1164,16 @@ public class NativeIndexDDLTest extends SAITester
         assertEquals("There should be no segment builders in progress.", 0L, getColumnIndexBuildsInProgress(jmxConnection));
 
         // rebuild index
-        ColumnFamilyStore.rebuildSecondaryIndex(KEYSPACE, currentTable(), indexv1Name, indexv2Name);
+        ColumnFamilyStore.rebuildSecondaryIndex(KEYSPACE, currentTable(), indexv1Name);
 
-        verifyIndexFiles(sstable, sstable);
+        verifyIndexFiles(sstable, 0);
         ResultSet rows = executeNet("SELECT id1 FROM %s WHERE v1>=0");
-        assertEquals(num, rows.all().size());
-        rows = executeNet("SELECT id1 FROM %s WHERE v2='0'");
         assertEquals(num, rows.all().size());
 
         assertEquals("Segment memory limiter should revert to zero following rebuild.", 0L, getSegmentBufferUsedBytes(jmxConnection));
         assertEquals("There should be no segment builders in progress.", 0L, getColumnIndexBuildsInProgress(jmxConnection));
 
         assertTrue(verifyChecksum("v1", false));
-        assertTrue(verifyChecksum("v2", true));
     }
 
     @Test

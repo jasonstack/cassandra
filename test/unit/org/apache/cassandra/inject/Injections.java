@@ -22,6 +22,7 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.lang.management.ManagementFactory;
 import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,6 +40,9 @@ import com.google.common.collect.Lists;
 import org.apache.commons.io.IOUtils;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.HeapUtils;
+import org.apache.cassandra.utils.SigarLibrary;
 import org.jboss.byteman.agent.install.Install;
 import org.jboss.byteman.agent.submit.Submit;
 import org.jboss.byteman.rule.helper.Helper;
@@ -74,7 +78,7 @@ public class Injections
     {
         if (submitter == null)
         {
-            submitter = new Submit(DatabaseDescriptor.getNativeTransportAddress().getHostAddress(), loadAgent());
+            submitter = new Submit(FBUtilities.getBroadcastAddressAndPort().address.getHostAddress(), loadAgent());
         }
         return submitter;
     }
@@ -82,10 +86,10 @@ public class Injections
     private static int loadAgent() throws Throwable
     {
         int port = getPort();
-        long pid = ProcessHandle.current().pid();
+        long pid = HeapUtils.getProcessId();
         List<String> properties = new ArrayList<>();
         properties.add("org.jboss.byteman.transform.all=true");
-        Install.install(Long.toString(pid), true, true, DatabaseDescriptor.getNativeTransportAddress().getHostAddress(), port, properties.toArray(new String[0]));
+        Install.install(Long.toString(pid), true, true, FBUtilities.getBroadcastAddressAndPort().address.getHostAddress(), port, properties.toArray(new String[0]));
         return port;
     }
 

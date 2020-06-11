@@ -41,6 +41,7 @@ public class OffsetFactory implements LongArray.Factory
         return new OffsetLongArray(wrapped.open(), idxOffset);
     }
 
+    @SuppressWarnings("resource")
     @Override
     public LongArray openTokenReader(long segmentRowId, SSTableQueryContext context)
     {

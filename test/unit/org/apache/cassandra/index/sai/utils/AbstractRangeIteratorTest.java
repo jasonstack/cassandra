@@ -22,8 +22,11 @@ package org.apache.cassandra.index.sai.utils;
 
 import java.util.Arrays;
 
+import org.junit.Ignore;
+
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Ignore
 public class AbstractRangeIteratorTest extends NdiRandomizedTest
 {
     protected long[] arr(long... longArray)

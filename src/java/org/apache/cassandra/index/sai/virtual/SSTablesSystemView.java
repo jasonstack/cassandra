@@ -20,27 +20,25 @@
  */
 package org.apache.cassandra.index.sai.virtual;
 
-import org.apache.cassandra.index.sai.ColumnContext;
-import org.apache.cassandra.index.sai.SSTableContext;
-import org.apache.cassandra.index.sai.SSTableIndex;
-import org.apache.cassandra.index.sai.StorageAttachedIndex;
-import org.apache.cassandra.index.sai.StorageAttachedIndexGroup;
-import org.apache.cassandra.index.sai.disk.io.CryptoUtils;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.virtual.AbstractVirtualTable;
-import org.apache.cassandra.db.virtual.DataSet;
+import org.apache.cassandra.db.virtual.SimpleDataSet;
+import org.apache.cassandra.db.virtual.SystemViewsKeyspace;
 import org.apache.cassandra.db.virtual.VirtualTable;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.LocalPartitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.index.sai.ColumnContext;
+import org.apache.cassandra.index.sai.SSTableContext;
+import org.apache.cassandra.index.sai.SSTableIndex;
+import org.apache.cassandra.index.sai.StorageAttachedIndex;
+import org.apache.cassandra.index.sai.StorageAttachedIndexGroup;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.schema.CompressionParams;
-import org.apache.cassandra.schema.SchemaConstants;
-import org.apache.cassandra.schema.SchemaManager;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 
 /**
@@ -48,8 +46,6 @@ import org.apache.cassandra.schema.TableMetadata;
  */
 public class SSTablesSystemView extends AbstractVirtualTable
 {
-    public static final VirtualTable INSTANCE = new SSTablesSystemView();
-
     static final String NAME = "sstable_indexes";
 
     static final String KEYSPACE_NAME = "keyspace_name";
@@ -65,12 +61,11 @@ public class SSTablesSystemView extends AbstractVirtualTable
     static final String END_TOKEN = "end_token";
     static final String PER_TABLE_DISK_SIZE = "per_table_disk_size";
     static final String PER_COLUMN_DISK_SIZE = "per_column_disk_size";
-    static final String ENCRYPTION = "encryption";
 
-    private SSTablesSystemView()
+    public SSTablesSystemView(String keyspace)
     {
-        super(TableMetadata.builder(SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME, NAME)
-                           .partitioner(new LocalPartitioner<>(UTF8Type.instance))
+        super(TableMetadata.builder(keyspace, NAME)
+                           .partitioner(new LocalPartitioner(UTF8Type.instance))
                            .comment("SSTable index metadata")
                            .kind(TableMetadata.Kind.VIRTUAL)
                            .addPartitionKeyColumn(KEYSPACE_NAME, UTF8Type.instance)
@@ -86,18 +81,17 @@ public class SSTablesSystemView extends AbstractVirtualTable
                            .addRegularColumn(END_TOKEN, UTF8Type.instance)
                            .addRegularColumn(PER_TABLE_DISK_SIZE, LongType.instance)
                            .addRegularColumn(PER_COLUMN_DISK_SIZE, LongType.instance)
-                           .addRegularColumn(ENCRYPTION, UTF8Type.instance)
                            .build());
     }
 
     @Override
     public DataSet data()
     {
-        DataSet dataset = newDataSet();
+        SimpleDataSet dataset = new SimpleDataSet(metadata());
 
-        for (String ks : SchemaManager.instance.getUserKeyspaces())
+        for (String ks : Schema.instance.getUserKeyspaces())
         {
-            Keyspace keyspace = SchemaManager.instance.getKeyspaceInstance(ks);
+            Keyspace keyspace = Schema.instance.getKeyspaceInstance(ks);
             if (keyspace == null)
                 throw new IllegalArgumentException("Unknown keyspace " + ks);
 
@@ -116,27 +110,20 @@ public class SSTablesSystemView extends AbstractVirtualTable
                         for (SSTableIndex sstableIndex : columnContext.getView())
                         {
                             SSTableReader sstable = sstableIndex.getSSTable();
-                            SSTableContext sstableContext = sstableIndex.getSSTableContext();
                             Descriptor descriptor = sstable.descriptor;
                             AbstractBounds<Token> bounds = sstable.getBounds();
 
-                            dataset.addRow(ks,
-                                    dataset.newRowBuilder(columnContext.getIndexName(),
-                                            sstable.getFilename().getName())
-                                            .addColumn(TABLE_NAME, () -> descriptor.cfname)
-                                            .addColumn(COLUMN_NAME, columnContext::getColumnName)
-                                            .addColumn(FORMAT_VERSION, () -> sstableIndex.getVersion().toString())
-                                            .addColumn(CELL_COUNT, sstableIndex::getRowCount)
-                                            .addColumn(MIN_ROW_ID, sstableIndex::minSSTableRowId)
-                                            .addColumn(MAX_ROW_ID, sstableIndex::maxSSTableRowId)
-                                            .addColumn(START_TOKEN, () -> tokenFactory.toString(bounds.left))
-                                            .addColumn(END_TOKEN, () -> tokenFactory.toString(bounds.right))
-                                            .addColumn(PER_TABLE_DISK_SIZE, sstableContext::diskUsage)
-                                            .addColumn(PER_COLUMN_DISK_SIZE, sstableIndex::sizeOfPerColumnComponents)
-                                            .addColumn(ENCRYPTION, () -> {
-                                                CompressionParams params = CryptoUtils.getCompressionParams(sstableIndex.getSSTable());
-                                                return CryptoUtils.isCryptoEnabled(params) ? params.toString() : "none";
-                                            }));
+                            dataset.row(ks, columnContext.getIndexName(), sstable.getFilename())
+                                   .column(TABLE_NAME, descriptor.cfname)
+                                   .column(COLUMN_NAME, columnContext.getColumnName())
+                                   .column(FORMAT_VERSION, sstableIndex.getVersion().toString())
+                                   .column(CELL_COUNT, sstableIndex.getRowCount())
+                                   .column(MIN_ROW_ID, sstableIndex.minSSTableRowId())
+                                   .column(MAX_ROW_ID, sstableIndex.maxSSTableRowId())
+                                   .column(START_TOKEN, tokenFactory.toString(bounds.left))
+                                   .column(END_TOKEN, tokenFactory.toString(bounds.right))
+                                   .column(PER_TABLE_DISK_SIZE, sstableIndex.getSSTableContext().diskUsage())
+                                   .column(PER_COLUMN_DISK_SIZE, sstableIndex.sizeOfPerColumnComponents());
                         }
                     }
                 }

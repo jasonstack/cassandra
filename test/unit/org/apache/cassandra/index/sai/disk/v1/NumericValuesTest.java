@@ -22,20 +22,15 @@ package org.apache.cassandra.index.sai.disk.v1;
 
 
 import java.util.Arrays;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.function.LongFunction;
 
 import org.junit.Test;
 
-import org.apache.cassandra.concurrent.TPC;
-import org.apache.cassandra.concurrent.TPCScheduler;
 import org.apache.cassandra.index.sai.SSTableQueryContext;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.utils.LongArray;
 import org.apache.cassandra.index.sai.utils.NdiRandomizedTest;
 import org.apache.cassandra.io.util.FileHandle;
-import org.apache.cassandra.io.util.Rebufferer;
 
 public class NumericValuesTest extends NdiRandomizedTest
 {
@@ -125,7 +120,6 @@ public class NumericValuesTest extends NdiRandomizedTest
         }
 
         // async
-        final TPCScheduler onReadyExecutor = TPC.bestTPCScheduler();
         try (FileHandle fileHandle = components.createFileHandle(IndexComponents.TOKEN_VALUES);
              LongArray reader = new BlockPackedReader(fileHandle, IndexComponents.TOKEN_VALUES, components, source).open())
         {
@@ -133,9 +127,7 @@ public class NumericValuesTest extends NdiRandomizedTest
 
             for (int x = 0; x < array.length; x++)
             {
-                final CompletableFuture<Long> result = new CompletableFuture<>();
-                findTokenAsync(reader, array[x], result, onReadyExecutor);
-                assertEquals(result.get().intValue(), x);
+                assertEquals(findToken(reader, array[x]), x);
             }
         }
     }
@@ -216,7 +208,6 @@ public class NumericValuesTest extends NdiRandomizedTest
             }
         }
 
-        final TPCScheduler onReadyExecutor = TPC.bestTPCScheduler();
         try (FileHandle fileHandle = components.createFileHandle(IndexComponents.TOKEN_VALUES);
              LongArray reader = (monotonic ? new MonotonicBlockPackedReader(fileHandle, IndexComponents.TOKEN_VALUES, components, source)
                                                    : new BlockPackedReader(fileHandle, IndexComponents.TOKEN_VALUES, components, source)).open())
@@ -225,71 +216,19 @@ public class NumericValuesTest extends NdiRandomizedTest
 
             for (int x = 0; x < array.length; x++)
             {
-                final CompletableFuture<Long> result = new CompletableFuture<>();
-                readLongAsync(reader, x, result, onReadyExecutor);
-                assertEquals(result.get().longValue(), array[x]);
+                assertEquals(readLong(reader, x), array[x]);
             }
         }
     }
 
-    private void readLongAsync(LongArray reader, long idx, CompletableFuture<Long> result, TPCScheduler onReadyExecutor)
+    private long readLong(LongArray reader, long idx)
     {
-        try
-        {
-            final long v = reader.get(idx);
-            result.complete(v);
-        }
-        catch (Rebufferer.NotInCacheException e)
-        {
-            // Retry the request once data is in the cache
-            e.accept(this.getClass(),
-                    () -> readLongAsync(reader, idx, result, onReadyExecutor),
-                    (t) ->
-                    {
-                        // Calling completeExceptionally() wraps the original exception into a CompletionException even
-                        // though the documentation says otherwise
-                        if (t instanceof CompletionException && t.getCause() != null)
-                            t = t.getCause();
-
-                        result.completeExceptionally(t);
-                        return null;
-                    },
-                    onReadyExecutor);
-        }
-        catch (Exception e)
-        {
-            result.completeExceptionally(e);
-        }
+        return reader.get(idx);
     }
 
-    private void findTokenAsync(LongArray reader, long token, CompletableFuture<Long> result, TPCScheduler onReadyExecutor)
+    private int findToken(LongArray reader, long token)
     {
-        try
-        {
-            final long v = reader.findTokenRowID(token);
-            result.complete(v);
-        }
-        catch (Rebufferer.NotInCacheException e)
-        {
-            // Retry the request once data is in the cache
-            e.accept(this.getClass(),
-                    () -> findTokenAsync(reader, token, result, onReadyExecutor),
-                    (t) ->
-                    {
-                        // Calling completeExceptionally() wraps the original exception into a CompletionException even
-                        // though the documentation says otherwise
-                        if (t instanceof CompletionException && t.getCause() != null)
-                            t = t.getCause();
-
-                        result.completeExceptionally(t);
-                        return null;
-                    },
-                    onReadyExecutor);
-        }
-        catch (Exception e)
-        {
-            result.completeExceptionally(e);
-        }
+        return Math.toIntExact(reader.findTokenRowID(token));
     }
 
     private void writeTokens(boolean monotonic, IndexComponents components, long[] array, LongFunction<Long> generator) throws Exception

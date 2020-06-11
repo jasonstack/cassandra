@@ -52,7 +52,7 @@ public abstract class ColumnQueryMetrics extends AbstractMetrics
 
             termsTraversalTotalTime = Metrics.timer(createMetricName("TermsLookupLatency"));
 
-            Meter postingDecodes = Metrics.meter(createMetricName("PostingDecodes", TRIE_POSTINGS_TYPE), false);
+            Meter postingDecodes = Metrics.meter(createMetricName("PostingDecodes", TRIE_POSTINGS_TYPE));
 
             postingsListener = new PostingListEventsMetrics(postingDecodes);
         }
@@ -91,11 +91,11 @@ public abstract class ColumnQueryMetrics extends AbstractMetrics
             super(indexName, table);
 
             intersectionLatency = Metrics.timer(createMetricName("KDTreeIntersectionLatency"));
-            intersectionEarlyExits = Metrics.meter(createMetricName("KDTreeIntersectionEarlyExits"), false);
+            intersectionEarlyExits = Metrics.meter(createMetricName("KDTreeIntersectionEarlyExits"));
 
-            postingsNumPostings = Metrics.meter(createMetricName("NumPostings", BKD_POSTINGS_TYPE), false);
+            postingsNumPostings = Metrics.meter(createMetricName("NumPostings", BKD_POSTINGS_TYPE));
 
-            Meter postingDecodes = Metrics.meter(createMetricName("PostingDecodes", BKD_POSTINGS_TYPE), false);
+            Meter postingDecodes = Metrics.meter(createMetricName("PostingDecodes", BKD_POSTINGS_TYPE));
 
             postingsListener = new PostingListEventsMetrics(postingDecodes);
         }

@@ -79,7 +79,7 @@ class BKDQueries
     {
         byte[] buffer = new byte[TypeUtil.fixedSizeOf(type)];
         assert buffer.length == bytesPerDim * numDim;
-        ByteBufferUtil.toBytes(type.asComparableBytes(value, ByteComparable.Version.DSE68), buffer);
+        ByteBufferUtil.toBytes(type.asComparableBytes(value, ByteComparable.Version.OSS41), buffer);
         return buffer;
     }
 

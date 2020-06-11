@@ -21,19 +21,16 @@
 package org.apache.cassandra.index.sai.functional;
 
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.exceptions.ReadFailureException;
 import org.apache.cassandra.index.sai.SSTableContext;
 import org.apache.cassandra.inject.Injection;
 import org.apache.cassandra.inject.Injections;
-import com.datastax.oss.driver.api.core.cql.ResultSet;
-import com.datastax.oss.driver.api.core.servererrors.ReadFailureException;
 import org.assertj.core.api.Assertions;
 
 import static org.junit.Assert.assertEquals;
 
-@Category(NightlyOnly.class)
 public class FailureTest extends AbstractNodeLifecycleTest
 {
     @Test

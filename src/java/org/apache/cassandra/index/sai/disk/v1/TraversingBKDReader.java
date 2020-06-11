@@ -23,18 +23,14 @@ package org.apache.cassandra.index.sai.disk.v1;
 import java.io.Closeable;
 
 import org.agrona.collections.IntArrayList;
-import org.apache.cassandra.index.sai.disk.io.CryptoUtils;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.disk.io.IndexInputReader;
 import org.apache.cassandra.index.sai.utils.SAICodecUtils;
-import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.store.ByteArrayDataInput;
-import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FutureArrays;
 import org.apache.lucene.util.MathUtil;
@@ -66,9 +62,8 @@ public class TraversingBKDReader implements Closeable
         this.indexComponents = indexComponents;
         this.indexFile = indexFile;
 
-        try (final RandomAccessReader reader = indexFile.createReader())
+        try (IndexInputReader in = IndexInputReader.create(indexFile.createReader()))
         {
-            final IndexInputReader in = IndexInputReader.create(reader);
             SAICodecUtils.validate(in);
             in.seek(root);
 
@@ -85,17 +80,8 @@ public class TraversingBKDReader implements Closeable
             minPackedValue = new byte[packedBytesLength];
             maxPackedValue = new byte[packedBytesLength];
 
-            if (indexComponents.getEncryptionCompressor() != null)
-            {
-                IndexInput cryptoInput = CryptoUtils.uncompress(in, indexComponents.getEncryptionCompressor());
-                cryptoInput.readBytes(minPackedValue, 0, packedBytesLength);
-                cryptoInput.readBytes(maxPackedValue, 0, packedBytesLength);
-            }
-            else
-            {
-                in.readBytes(minPackedValue, 0, packedBytesLength);
-                in.readBytes(maxPackedValue, 0, packedBytesLength);
-            }
+            in.readBytes(minPackedValue, 0, packedBytesLength);
+            in.readBytes(maxPackedValue, 0, packedBytesLength);
 
             for (int dim = 0; dim < numDims; dim++)
             {
@@ -112,21 +98,9 @@ public class TraversingBKDReader implements Closeable
             // docCount, unused
             in.readVInt();
 
-            ICompressor compressor = indexComponents.getEncryptionCompressor();
-            if (compressor != null)
-            {
-                // TODO: there's extra byte[] allocation here
-                IndexInput input = CryptoUtils.uncompress(in, compressor);
-
-                packedIndex = new byte[(int)input.length()];
-                input.readBytes(packedIndex, 0, (int)input.length());
-            }
-            else
-            {
-                int numBytes = in.readVInt();
-                packedIndex = new byte[numBytes];
-                in.readBytes(packedIndex, 0, numBytes);
-            }
+            int numBytes = in.readVInt();
+            packedIndex = new byte[numBytes];
+            in.readBytes(packedIndex, 0, numBytes);
         }
         catch (Throwable t)
         {

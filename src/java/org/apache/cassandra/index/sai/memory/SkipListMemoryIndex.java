@@ -152,7 +152,7 @@ public class SkipListMemoryIndex extends MemoryIndex
                 {
                     mergedKeys.add(first);
 
-                    long currentTokenValue = first.getToken().getLongValue();
+                    long currentTokenValue = (long) first.getToken().getTokenValue();
                     minimumTokenValue = Math.min(minimumTokenValue, currentTokenValue);
                     maximumTokenValue = Math.max(maximumTokenValue, currentTokenValue);
                 }
@@ -171,7 +171,7 @@ public class SkipListMemoryIndex extends MemoryIndex
                 {
                     mergedKeys.add(key);
 
-                    long currentTokenValue = key.getToken().getLongValue();
+                    long currentTokenValue = (long) key.getToken().getTokenValue();
                     minimumTokenValue = Math.min(minimumTokenValue, currentTokenValue);
                     maximumTokenValue = Math.max(maximumTokenValue, currentTokenValue);
                 }

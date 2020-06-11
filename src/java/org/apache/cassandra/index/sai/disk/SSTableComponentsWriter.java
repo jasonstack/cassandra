@@ -33,7 +33,6 @@ import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.disk.v1.MetadataWriter;
 import org.apache.cassandra.index.sai.disk.v1.NumericValuesWriter;
 import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.lucene.util.IOUtils;
 
 /**
@@ -54,11 +53,11 @@ public class SSTableComponentsWriter
 
     private long currentKeyPartitionOffset;
 
-    public SSTableComponentsWriter(Descriptor descriptor, CompressionParams compressionParams) throws IOException
+    public SSTableComponentsWriter(Descriptor descriptor) throws IOException
     {
         this.descriptor = descriptor;
 
-        indexComponents = IndexComponents.perSSTable(descriptor, compressionParams);
+        indexComponents = IndexComponents.perSSTable(descriptor);
         this.metadataWriter = new MetadataWriter(indexComponents.createOutput(IndexComponents.GROUP_META));
 
         this.tokenWriter = new NumericValuesWriter(IndexComponents.TOKEN_VALUES,

@@ -20,27 +20,30 @@
  */
 package org.apache.cassandra.index.sai.virtual;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.virtual.SystemViewsKeyspace;
+import org.apache.cassandra.db.virtual.VirtualKeyspace;
+import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.SSTableIndex;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
-import org.apache.cassandra.index.sai.disk.io.CryptoUtils;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.schema.CompressionParams;
-import org.apache.cassandra.schema.SchemaConstants;
 
 /**
  * Tests the virtual table exposing SSTable index metadata.
  */
 public class SSTablesSystemViewTest extends SAITester
 {
-    private static final String SELECT = String.format("SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s " +
+    private static final String SELECT = String.format("SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s " +
                                                        "FROM %s.%s WHERE %s = '%s'",
                                                        SSTablesSystemView.INDEX_NAME,
                                                        SSTablesSystemView.SSTABLE_NAME,
@@ -54,11 +57,18 @@ public class SSTablesSystemViewTest extends SAITester
                                                        SSTablesSystemView.END_TOKEN,
                                                        SSTablesSystemView.PER_TABLE_DISK_SIZE,
                                                        SSTablesSystemView.PER_COLUMN_DISK_SIZE,
-                                                       SSTablesSystemView.ENCRYPTION,
-                                                       SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME,
+                                                       SystemViewsKeyspace.NAME,
                                                        SSTablesSystemView.NAME,
                                                        SSTablesSystemView.KEYSPACE_NAME,
                                                        KEYSPACE);
+
+    @BeforeClass
+    public static void setUpClass()
+    {
+        VirtualKeyspaceRegistry.instance.register(new VirtualKeyspace(SystemViewsKeyspace.NAME, ImmutableList.of(new SSTablesSystemView(SystemViewsKeyspace.NAME))));
+
+        CQLTester.setUpClass();
+    }
 
     @Before
     public void setup()
@@ -152,12 +162,9 @@ public class SSTablesSystemViewTest extends SAITester
                 Token.TokenFactory tokenFactory = cfs.metadata().partitioner.getTokenFactory();
                 AbstractBounds<Token> bounds = sstable.getBounds();
 
-                CompressionParams params = CryptoUtils.getCompressionParams(sstable);
-                String compressionStr = CryptoUtils.isCryptoEnabled(params) ? params.toString() : "none";
-
                 return new Object[]{
                         indexName,
-                        sstable.getFilename().getName(),
+                        sstable.getFilename(),
                         currentTable(),
                         columnName,
                         sstableIndex.getVersion().toString(),
@@ -167,8 +174,7 @@ public class SSTablesSystemViewTest extends SAITester
                         tokenFactory.toString(bounds.left),
                         tokenFactory.toString(bounds.right),
                         sstableIndex.getSSTableContext().diskUsage(),
-                        sstableIndex.sizeOfPerColumnComponents(),
-                        compressionStr
+                        sstableIndex.sizeOfPerColumnComponents()
                 };
             }
         }

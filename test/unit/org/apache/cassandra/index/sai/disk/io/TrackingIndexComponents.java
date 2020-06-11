@@ -30,7 +30,6 @@ import com.google.common.base.Throwables;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.SequentialWriterOption;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.lucene.store.IndexInput;
 
 import static org.junit.Assert.assertNotNull;
@@ -39,10 +38,9 @@ public class TrackingIndexComponents extends IndexComponents
 {
     private final Map<TrackingIndexInput, String> openInputs = Collections.synchronizedMap(new HashMap<>());
 
-    public TrackingIndexComponents(String column, Descriptor descriptor, SequentialWriterOption sequentialWriterOption,
-            final CompressionParams compressionParams)
+    public TrackingIndexComponents(String column, Descriptor descriptor, SequentialWriterOption sequentialWriterOption)
     {
-        super(column, descriptor, sequentialWriterOption, compressionParams);
+        super(column, descriptor, sequentialWriterOption);
     }
 
     @Override

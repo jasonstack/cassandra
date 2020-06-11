@@ -26,12 +26,12 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.datastax.driver.core.exceptions.ReadTimeoutException;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.disk.PostingListRangeIterator;
 import org.apache.cassandra.index.sai.metrics.TableQueryMetrics;
 import org.apache.cassandra.inject.Injection;
 import org.apache.cassandra.inject.Injections;
-import com.datastax.oss.driver.api.core.servererrors.ReadTimeoutException;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 

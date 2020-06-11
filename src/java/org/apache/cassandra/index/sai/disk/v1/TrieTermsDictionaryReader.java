@@ -50,7 +50,7 @@ class TrieTermsDictionaryReader extends Walker<TrieTermsDictionaryReader>
 
     TrieTermsDictionaryReader(Rebufferer rebufferer, long root)
     {
-        super(rebufferer, root, Rebufferer.ReaderConstraint.NONE);
+        super(rebufferer, root);
     }
 
     static final TrieSerializer<Long, DataOutputPlus> trieSerializer = new TrieSerializer<Long, DataOutputPlus>()

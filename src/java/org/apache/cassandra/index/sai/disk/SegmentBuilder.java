@@ -107,7 +107,7 @@ public abstract class SegmentBuilder
 
         protected long addInternal(ByteBuffer term, int segmentRowId)
         {
-            final ByteSource byteSource = termComparator.asComparableBytes(term, ByteComparable.Version.DSE68);
+            final ByteSource byteSource = termComparator.asComparableBytes(term, ByteComparable.Version.OSS41);
             ByteBufferUtil.toBytes(byteSource, buffer);
             return kdTreeRamBuffer.addPackedValue(segmentRowId, new BytesRef(buffer));
         }

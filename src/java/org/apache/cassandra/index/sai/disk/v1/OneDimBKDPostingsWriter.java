@@ -151,10 +151,11 @@ public class OneDimBKDPostingsWriter implements TraversingBKDReader.IndexTreeTra
                                                          .map(PackedLongsPostingList::new)
                                                          .collect(Collectors.toList());
 
-            final PostingList mergedPostingList = MergePostingList.merge(postingLists);
-
-            final long postingFilePosition = postingsWriter.write(mergedPostingList);
-            nodeIDToPostingsFilePointer.put(nodeID, postingFilePosition);
+            try (PostingList mergedPostingList = MergePostingList.merge(postingLists))
+            {
+                final long postingFilePosition = postingsWriter.write(mergedPostingList);
+                nodeIDToPostingsFilePointer.put(nodeID, postingFilePosition);
+            }
         }
         flushTime.stop();
         logger.debug(components.logMessage("Flushed {} of posting lists for kd-tree nodes in {} ms."),

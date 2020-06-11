@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 
-import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.driver.core.ResultSet;
 import org.apache.cassandra.utils.Throwables;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,7 +37,7 @@ public class IndexMetricsTest extends AbstractMetricsTest
     private static final String INDEX = "table_name_index";
 
     private static final String CREATE_TABLE_TEMPLATE = "CREATE TABLE %s." + TABLE + " (ID1 TEXT PRIMARY KEY, v1 INT, v2 TEXT) WITH compaction = " +
-            "{'class' : 'SizeTieredCompactionStrategy', 'enabled' : false } AND nodesync = {'enabled' : 'false'}";
+            "{'class' : 'SizeTieredCompactionStrategy', 'enabled' : false }";
     private static final String CREATE_INDEX_TEMPLATE = "CREATE CUSTOM INDEX IF NOT EXISTS " + INDEX + " ON %s." + TABLE + "(%s) USING 'StorageAttachedIndex'";
 
     @Test

@@ -111,7 +111,7 @@ public class LongIterator extends RangeIterator
         @Override
         public Iterator<DecoratedKey> keys()
         {
-            return new AbstractIterator<>()
+            return new AbstractIterator<DecoratedKey>()
             {
                 Iterator<Long> iterator = offsets.iterator();
 
@@ -139,7 +139,7 @@ public class LongIterator extends RangeIterator
 
     public static List<Long> convert(final long... nums)
     {
-        return new ArrayList<>(nums.length)
+        return new ArrayList<Long>(nums.length)
         {{
             for (long n : nums)
                 add(n);
@@ -161,7 +161,7 @@ public class LongIterator extends RangeIterator
             {
                 // extract the fake key and token from LongToken#keys
                 InMemoryToken inMemoryToken = (InMemoryToken) token;
-                inMemoryToken.keys().forEachRemaining(key -> results.add(key.getToken().getLongValue()));
+                inMemoryToken.keys().forEachRemaining(key -> results.add((Long) key.getToken().getTokenValue()));
             }
         }
 

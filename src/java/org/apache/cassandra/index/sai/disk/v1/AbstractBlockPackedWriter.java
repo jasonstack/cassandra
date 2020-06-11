@@ -22,11 +22,10 @@ package org.apache.cassandra.index.sai.disk.v1;
 
 import java.io.IOException;
 
+import org.apache.cassandra.index.sai.utils.SAICodecUtils;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.packed.DirectWriter;
 import org.apache.cassandra.index.sai.disk.io.RAMIndexOutput;
-
-import static org.apache.lucene.util.packed.PackageAccessor.checkBlockSize;
 
 /**
  * Modified copy of {@link org.apache.lucene.util.packed.AbstractBlockPackedWriter} to use {@link DirectWriter} for
@@ -48,7 +47,7 @@ abstract class AbstractBlockPackedWriter
 
     AbstractBlockPackedWriter(IndexOutput out, int blockSize)
     {
-        checkBlockSize(blockSize, MIN_BLOCK_SIZE, MAX_BLOCK_SIZE);
+        SAICodecUtils.checkBlockSize(blockSize, MIN_BLOCK_SIZE, MAX_BLOCK_SIZE);
         this.out = out;
         this.blockMetaWriter = new RAMIndexOutput("NumericValuesMeta");
         values = new long[blockSize];

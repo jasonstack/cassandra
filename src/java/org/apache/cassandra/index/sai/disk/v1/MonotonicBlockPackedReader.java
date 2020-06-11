@@ -25,9 +25,9 @@ import java.io.IOException;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.disk.io.IndexInputReader;
 import org.apache.cassandra.index.sai.utils.LongArray;
+import org.apache.cassandra.index.sai.utils.SAICodecUtils;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.util.FileHandle;
-import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.packed.PackedInts;
@@ -36,8 +36,6 @@ import org.apache.lucene.util.packed.PackedLongValues;
 import static org.apache.cassandra.index.sai.disk.v1.MonotonicBlockPackedWriter.MAX_BLOCK_SIZE;
 import static org.apache.cassandra.index.sai.disk.v1.MonotonicBlockPackedWriter.MIN_BLOCK_SIZE;
 import static org.apache.cassandra.index.sai.utils.SAICodecUtils.validate;
-import static org.apache.lucene.util.packed.PackageAccessor.checkBlockSize;
-import static org.apache.lucene.util.packed.PackageAccessor.numBlocks;
 
 /**
  * Provides non-blocking, random access to a stream written with {@link MonotonicBlockPackedWriter}.
@@ -58,18 +56,17 @@ public class MonotonicBlockPackedReader implements LongArray.Factory
         NumericValuesMeta meta = new NumericValuesMeta(source.get(component.name()));
         this.components = components;
         this.valueCount = meta.valueCount;
-        blockShift = checkBlockSize(meta.blockSize, MIN_BLOCK_SIZE, MAX_BLOCK_SIZE);
+        blockShift = SAICodecUtils.checkBlockSize(meta.blockSize, MIN_BLOCK_SIZE, MAX_BLOCK_SIZE);
         blockMask = meta.blockSize - 1;
-        int numBlocks = numBlocks(valueCount, meta.blockSize);
+        int numBlocks = SAICodecUtils.numBlocks(valueCount, meta.blockSize);
         PackedLongValues.Builder minValuesBuilder = PackedLongValues.monotonicBuilder(PackedInts.COMPACT);
         PackedLongValues.Builder blockOffsetsBuilder = PackedLongValues.monotonicBuilder(PackedInts.COMPACT);
         averages = new float[numBlocks];
         blockBitsPerValue = new byte[numBlocks];
         this.file = file;
 
-        try (final RandomAccessReader reader = this.file.createReader())
+        try (IndexInputReader in = IndexInputReader.create(this.file.createReader()))
         {
-            final IndexInputReader in = IndexInputReader.create(reader);
             validate(in);
 
             in.seek(meta.blockMetaOffset);
@@ -92,6 +89,7 @@ public class MonotonicBlockPackedReader implements LongArray.Factory
         minValues = minValuesBuilder.build();
     }
 
+    @SuppressWarnings("resource")
     @Override
     public LongArray open()
     {

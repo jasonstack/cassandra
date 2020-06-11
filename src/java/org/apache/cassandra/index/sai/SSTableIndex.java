@@ -92,7 +92,7 @@ public class SSTableIndex
 
             final MetadataSource source = MetadataSource.loadColumnMetadata(components);
             version = source.getVersion();
-            metadatas = SegmentMetadata.load(source, components.getEncryptionCompressor());
+            metadatas = SegmentMetadata.load(source);
 
             for (SegmentMetadata metadata : metadatas)
             {

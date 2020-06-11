@@ -196,7 +196,7 @@ public class BKDQueriesTest extends NdiRandomizedTest
     private byte[] toSortableBytes(int value)
     {
         byte[] buffer = new byte[4];
-        ByteSource source = Int32Type.instance.asComparableBytes(Int32Type.instance.decompose(value), ByteComparable.Version.DSE68);
+        ByteSource source = Int32Type.instance.asComparableBytes(Int32Type.instance.decompose(value), ByteComparable.Version.OSS41);
         ByteBufferUtil.toBytes(source, buffer);
         return buffer;
     }

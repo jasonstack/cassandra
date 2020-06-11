@@ -32,7 +32,6 @@ import org.apache.cassandra.index.sai.memory.InMemoryToken;
 import org.apache.cassandra.index.sai.utils.RangeIterator;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.utils.MergeIterator;
-import org.apache.cassandra.utils.Reducer;
 
 /**
  * A container that exposes an iterator of {@link DecoratedKey} from disk. It exists primarily
@@ -91,7 +90,7 @@ public abstract class Token implements Comparable<Token>
     @NotThreadSafe
     public static class ReusableTokenMerger implements TokenMerger
     {
-        private final Reducer<DecoratedKey, DecoratedKey> reducer = Reducer.getIdentity();
+        private final MergeIterator.Reducer<DecoratedKey, DecoratedKey> reducer = MergeIterator.getIdentity();
         private final List<Iterator<DecoratedKey>> keyIterators;
         private final List<Token> tokens;
 

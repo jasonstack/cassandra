@@ -25,21 +25,20 @@ import javax.management.ObjectName;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 
 import org.apache.cassandra.index.sai.SAITester;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.utils.Throwables;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+@Ignore
 public abstract class AbstractMetricsTest extends SAITester
 {
     @Before
     public void initializeTest() throws Throwable
     {
-        DatabaseDescriptor.setMetricsHistogramUpdateTimeMillis(0);
-
         requireNetwork();
 
         startJMXServer();

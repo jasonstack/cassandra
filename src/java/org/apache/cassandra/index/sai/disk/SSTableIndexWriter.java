@@ -70,12 +70,12 @@ public class SSTableIndexWriter implements ColumnIndexWriter
     private final List<SegmentMetadata> segments = new ArrayList<>();
 
     public SSTableIndexWriter(Descriptor descriptor, ColumnContext context, NamedMemoryLimiter limiter,
-            BooleanSupplier isIndexValid, CompressionParams compressionParams)
+            BooleanSupplier isIndexValid)
     {
         this.column = context.getDefinition();
         this.context = context;
         this.descriptor = descriptor;
-        this.indexComponents = IndexComponents.create(context.getColumnName(), descriptor, compressionParams);
+        this.indexComponents = IndexComponents.create(context.getColumnName(), descriptor);
         this.analyzer = context.getAnalyzer();
         this.limiter = limiter;
         this.isIndexValid = isIndexValid;
@@ -276,7 +276,7 @@ public class SSTableIndexWriter implements ColumnIndexWriter
 
         try (final MetadataWriter writer = new MetadataWriter(indexComponents.createOutput(indexComponents.meta)))
         {
-            SegmentMetadata.write(writer, segments, indexComponents.getEncryptionCompressor());
+            SegmentMetadata.write(writer, segments);
         }
         catch (IOException e)
         {

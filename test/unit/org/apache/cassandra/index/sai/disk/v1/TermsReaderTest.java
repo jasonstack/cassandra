@@ -37,8 +37,8 @@ import org.apache.cassandra.index.sai.utils.NdiRandomizedTest;
 import org.apache.cassandra.index.sai.utils.SAICodecUtils;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.utils.ByteComparable;
+import org.apache.cassandra.utils.FastByteOperations;
 import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.utils.UnsafeCopy;
 
 import static org.apache.cassandra.index.sai.disk.InvertedIndexBuilder.buildStringTermsEnum;
 import static org.apache.cassandra.index.sai.metrics.QueryEventListeners.NO_OP_TRIE_LISTENER;
@@ -112,7 +112,7 @@ public class TermsReaderTest extends NdiRandomizedTest
             for (Pair<ByteBuffer, IntArrayList> pair : termsEnum)
             {
                 final byte[] bytes = new byte[pair.left.limit()];
-                UnsafeCopy.copyBufferToArray(pair.left, bytes, 0);
+                FastByteOperations.copy(pair.left, 0,bytes, 0, pair.left.remaining());
                 try (PostingList actualPostingList = reader.exactMatch(ByteComparable.fixedLength(bytes), NO_OP_TRIE_LISTENER, new QueryContext()))
                 {
                     final IntArrayList expectedPostingList = pair.right;

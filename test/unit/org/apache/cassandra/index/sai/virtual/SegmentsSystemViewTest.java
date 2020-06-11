@@ -25,23 +25,27 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.TypeCodec;
+import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.virtual.SystemViewsKeyspace;
+import org.apache.cassandra.db.virtual.VirtualKeyspace;
+import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.SSTableIndex;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.index.sai.disk.SegmentBuilder;
 import org.apache.cassandra.index.sai.disk.SegmentMetadata;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
-import com.datastax.oss.driver.api.core.cql.Row;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.schema.SchemaConstants;
 
 import static org.apache.cassandra.index.sai.virtual.SegmentsSystemView.MAX_TERM;
 import static org.apache.cassandra.index.sai.virtual.SegmentsSystemView.MIN_TERM;
@@ -52,7 +56,6 @@ import static org.junit.Assert.assertTrue;
 /**
  * Tests the virtual table exposing SSTable index segment metadata.
  */
-@Category(NightlyOnly.class)
 public class SegmentsSystemViewTest extends SAITester
 {
     private static final String SELECT = String.format("SELECT %s, %s, %s, %s " +
@@ -61,7 +64,7 @@ public class SegmentsSystemViewTest extends SAITester
                                                        SegmentsSystemView.CELL_COUNT,
                                                        SegmentsSystemView.MIN_SSTABLE_ROW_ID,
                                                        SegmentsSystemView.MAX_SSTABLE_ROW_ID,
-                                                       SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME,
+                                                       SystemViewsKeyspace.NAME,
                                                        SegmentsSystemView.NAME,
                                                        SegmentsSystemView.KEYSPACE_NAME,
                                                        KEYSPACE,
@@ -73,10 +76,19 @@ public class SegmentsSystemViewTest extends SAITester
                                                                       SegmentsSystemView.COMPONENT_METADATA,
                                                                       MIN_TERM,
                                                                       MAX_TERM,
-                                                                      SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME,
+                                                                      SystemViewsKeyspace.NAME,
                                                                       SegmentsSystemView.NAME,
                                                                       SegmentsSystemView.KEYSPACE_NAME,
                                                                       KEYSPACE);
+
+
+    @BeforeClass
+    public static void setUpClass()
+    {
+        VirtualKeyspaceRegistry.instance.register(new VirtualKeyspace(SystemViewsKeyspace.NAME, ImmutableList.of(new SegmentsSystemView(SystemViewsKeyspace.NAME))));
+
+        CQLTester.setUpClass();
+    }
 
     @Before
     public void setup()
@@ -149,10 +161,9 @@ public class SegmentsSystemViewTest extends SAITester
 
                 assertTrue(minTerm >= 100);
                 assertTrue(maxTerm <= 2000);
-                
-                Map<String, Map> indexMetadatas = row.getMap(0, String.class, Map.class);
 
-                for (Map.Entry<String, Map> entry : indexMetadatas.entrySet())
+                Map<String, Map<String, String>> indexMetadatas = row.get(0, TypeCodec.map(TypeCodec.ascii(), TypeCodec.map(TypeCodec.ascii(), TypeCodec.ascii())));
+                for (Map.Entry<String, Map<String, String>> entry : indexMetadatas.entrySet())
                 {
                     final String indexType = entry.getKey();
                     final String str = (String)entry.getValue().getOrDefault(SegmentMetadata.ComponentMetadata.LENGTH, "0");

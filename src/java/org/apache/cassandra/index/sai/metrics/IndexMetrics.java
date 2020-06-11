@@ -58,10 +58,10 @@ public class IndexMetrics extends AbstractMetrics
         memtableFlushCellsPerSecond = Metrics.histogram(createMetricName("MemtableIndexFlushCellsPerSecond"), false);
         segmentsPerCompaction = Metrics.histogram(createMetricName("SegmentsPerCompaction"), false);
         ssTableCellCount = Metrics.register(createMetricName("SSTableCellCount"), context::getCellCount);
-        memtableIndexFlushCount = Metrics.counter(createMetricName("MemtableIndexFlushCount"), false);
-        compactionCount = Metrics.counter(createMetricName("CompactionCount"), false);
-        memtableIndexFlushErrors = Metrics.counter(createMetricName("MemtableIndexFlushErrors"), false);
-        segmentFlushErrors = Metrics.counter(createMetricName("CompactionSegmentFlushErrors"), false);
+        memtableIndexFlushCount = Metrics.counter(createMetricName("MemtableIndexFlushCount"));
+        compactionCount = Metrics.counter(createMetricName("CompactionCount"));
+        memtableIndexFlushErrors = Metrics.counter(createMetricName("MemtableIndexFlushErrors"));
+        segmentFlushErrors = Metrics.counter(createMetricName("CompactionSegmentFlushErrors"));
         liveMemtableIndexWriteCount = Metrics.register(createMetricName("LiveMemtableIndexWriteCount"), context::liveMemtableWriteCount);
         memtableIndexBytes = Metrics.register(createMetricName("MemtableIndexBytes"), context::estimatedMemIndexMemoryUsed);
         diskUsedBytes = Metrics.register(createMetricName("DiskUsedBytes"), context::diskUsage);

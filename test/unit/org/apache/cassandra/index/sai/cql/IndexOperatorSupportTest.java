@@ -25,8 +25,8 @@ import java.util.List;
 
 import org.junit.Test;
 
+import com.datastax.driver.core.exceptions.InvalidQueryException;
 import org.apache.cassandra.index.sai.SAITester;
-import com.datastax.oss.driver.api.core.servererrors.InvalidQueryException;
 import org.apache.cassandra.utils.Pair;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

@@ -42,6 +42,7 @@ import org.apache.cassandra.index.sai.utils.RangeUnionIterator;
 import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.schema.ColumnMetadata;
 
+@SuppressWarnings("resource")
 public class Operation extends RangeIterator
 {
     public enum OperationType

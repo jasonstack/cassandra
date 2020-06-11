@@ -25,6 +25,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.datastax.driver.core.exceptions.ReadFailureException;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.SSTableContext;
 import org.apache.cassandra.index.sai.disk.v1.PostingsReader;
@@ -34,7 +35,6 @@ import org.apache.cassandra.inject.Expression;
 import org.apache.cassandra.inject.Injection;
 import org.apache.cassandra.inject.Injections;
 import org.apache.cassandra.inject.InvokePointBuilder;
-import com.datastax.oss.driver.api.core.servererrors.ReadFailureException;
 import org.apache.cassandra.utils.Throwables;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -109,13 +109,13 @@ public class SingleNodeQueryFailureTest extends SAITester
         {
             Injections.inject(injection);
 
-            assertThatThrownBy(() -> executeNet("SELECT id FROM %s WHERE v1 < 1 and v2 = '0'"))
+            assertThatThrownBy(() -> executeNet("SELECT id FROM %s WHERE v1 < 1 and v2 = '0' ALLOW FILTERING"))
                     .isInstanceOf(ReadFailureException.class);
 
-            assertThatThrownBy(() -> executeNet("SELECT id FROM %s WHERE v1 >= 1 and v2 = '1'"))
+            assertThatThrownBy(() -> executeNet("SELECT id FROM %s WHERE v1 >= 1 and v2 = '1' ALLOW FILTERING"))
                     .isInstanceOf(ReadFailureException.class);
 
-            assertThatThrownBy(() -> executeNet("SELECT id FROM %s WHERE v1 >= 2 and v2 = '2'"))
+            assertThatThrownBy(() -> executeNet("SELECT id FROM %s WHERE v1 >= 2 and v2 = '2' ALLOW FILTERING"))
                     .isInstanceOf(ReadFailureException.class);
         }
         catch (Exception e)

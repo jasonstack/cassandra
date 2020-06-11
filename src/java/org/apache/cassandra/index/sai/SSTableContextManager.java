@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -90,11 +91,7 @@ public class SSTableContextManager
                 IndexComponents components = IndexComponents.perSSTable(sstable);
                 logger.warn(components.logMessage("Invalid per-SSTable component after sstable {} add.."), sstable.descriptor, t);
                 invalid.add(sstable);
-                SSTableContext failed = sstableContexts.remove(sstable);
-                if (failed != null)
-                {
-                    failed.close();
-                }
+                FileUtils.closeQuietly(sstableContexts.remove(sstable));
             }
         }
 

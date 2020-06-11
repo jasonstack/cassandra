@@ -20,10 +20,7 @@
  */
 package org.apache.cassandra.index.sai;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -37,32 +34,33 @@ import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.index.sai.disk.StorageAttachedIndexWriter;
-import org.apache.cassandra.index.sai.disk.io.CryptoUtils;
-import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionTime;
+import org.apache.cassandra.db.RowIndexEntry;
+import org.apache.cassandra.db.compaction.CompactionInfo;
 import org.apache.cassandra.db.compaction.CompactionInterruptedException;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.Tracker;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.index.SecondaryIndexBuilder;
+import org.apache.cassandra.index.sai.disk.StorageAttachedIndexWriter;
+import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.io.sstable.Descriptor;
+import org.apache.cassandra.io.sstable.KeyIterator;
 import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.cassandra.io.sstable.SSTableSimpleIterator;
-import org.apache.cassandra.io.sstable.format.PartitionIndexIterator;
 import org.apache.cassandra.io.sstable.format.SSTableFlushObserver;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.RandomAccessReader;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.concurrent.Ref;
 
-import static org.apache.cassandra.db.compaction.TableOperation.StopTrigger.TRUNCATE;
+import static org.apache.cassandra.db.compaction.CompactionInfo.StopTrigger.TRUNCATE;
 
 /**
  * Multiple storage-attached indexes can start building concurrently. We need to make sure:
@@ -89,7 +87,6 @@ public class StorageAttachedIndexBuilder extends SecondaryIndexBuilder
 
     private long bytesProcessed = 0;
     private final long totalSizeInBytes;
-    private final String description;
 
     StorageAttachedIndexBuilder(StorageAttachedIndexGroup group, SortedMap<SSTableReader, Set<StorageAttachedIndex>> sstables, boolean isFullRebuild, boolean isInitialBuild)
     {
@@ -100,25 +97,6 @@ public class StorageAttachedIndexBuilder extends SecondaryIndexBuilder
         this.isFullRebuild = isFullRebuild;
         this.isInitialBuild = isInitialBuild;
         this.totalSizeInBytes = sstables.keySet().stream().mapToLong(SSTableReader::uncompressedLength).sum();
-
-        this.description = generateDescription(sstables);
-    }
-
-    private static String generateDescription(SortedMap<SSTableReader, Set<StorageAttachedIndex>> sstables)
-    {
-        Map<StorageAttachedIndex, Collection<SSTableReader>> indexToSStables = new HashMap<>();
-
-        for (Map.Entry<SSTableReader, Set<StorageAttachedIndex>> entry : sstables.entrySet())
-        {
-            for (StorageAttachedIndex index : entry.getValue())
-            {
-                indexToSStables.computeIfAbsent(index, k -> new ArrayList<>()).add(entry.getKey());
-            }
-        }
-
-        return indexToSStables.entrySet().stream()
-                              .map(e -> String.format("indexing '%s' on %d sstables", e.getKey().getContext().getColumnName(), e.getValue().size()))
-                              .collect(Collectors.joining(", "));
     }
 
     @Override
@@ -170,28 +148,28 @@ public class StorageAttachedIndexBuilder extends SecondaryIndexBuilder
             // remove existing per column index files instead of overwriting
             indexes.forEach(index -> index.deleteIndexFiles(sstable));
 
-            final CompressionParams compressionParams = CryptoUtils.getCompressionParams(sstable);
+            indexWriter = new StorageAttachedIndexWriter(sstable.descriptor, indexes, txn, perColumnOnly);
 
-            indexWriter = new StorageAttachedIndexWriter(sstable.descriptor, indexes, txn, perColumnOnly, compressionParams);
-
-            long previousDataPosition = 0;
+            long previousKeyPosition = 0;
             indexWriter.begin();
 
-            try (PartitionIndexIterator keys = sstable.allKeysIterator())
+            try (KeyIterator keys = new KeyIterator(sstable.descriptor, metadata))
             {
-                for (; keys.key() != null; keys.advance())
+                while (keys.hasNext())
                 {
                     if (isStopRequested())
                     {
-                        throw new CompactionInterruptedException(getProgress());
+                        throw new CompactionInterruptedException(getCompactionInfo());
                     }
 
-                    final DecoratedKey key = keys.key();
-                    final long dataPosition = keys.dataPosition();
+                    final DecoratedKey key = keys.next();
+                    final long keyPosition = keys.getKeyPosition();
 
-                    indexWriter.startPartition(key, dataPosition);
+                    indexWriter.startPartition(key, keyPosition);
 
-                    dataFile.seek(dataPosition);
+
+                    RowIndexEntry indexEntry = sstable.getPosition(key, SSTableReader.Operator.EQ);
+                    dataFile.seek(indexEntry.position);
                     ByteBufferUtil.skipShortLength(dataFile); // key
 
                     /*
@@ -200,14 +178,14 @@ public class StorageAttachedIndexBuilder extends SecondaryIndexBuilder
                      */
                     long partitionDeletionPosition = dataFile.getFilePointer();
                     DeletionTime partitionLevelDeletion = DeletionTime.serializer.deserialize(dataFile);
+                    long staticRowPosition = dataFile.getFilePointer();
 
                     indexWriter.partitionLevelDeletion(partitionLevelDeletion, partitionDeletionPosition);
 
-                    SerializationHelper helper = new SerializationHelper(sstable.metadata(), sstable.descriptor.version.encodingVersion(), SerializationHelper.Flag.LOCAL);
-                    SSTableSimpleIterator iterator = SSTableSimpleIterator.create(sstable.metadata(), dataFile, sstable.header, helper);
+                    DeserializationHelper helper = new DeserializationHelper(sstable.metadata(), sstable.descriptor.version.correspondingMessagingVersion(), DeserializationHelper.Flag.LOCAL);
 
-                    long staticRowPosition = dataFile.getFilePointer();
-                    try (SSTableIdentityIterator partition = new SSTableIdentityIterator(sstable, key, partitionLevelDeletion, dataFile, false, iterator))
+                    try (SSTableSimpleIterator iterator = SSTableSimpleIterator.create(sstable.metadata(), dataFile, sstable.header, helper, partitionLevelDeletion);
+                         SSTableIdentityIterator partition = new SSTableIdentityIterator(sstable, key, partitionLevelDeletion, sstable.getFilename(), iterator))
                     {
                         // if the row has statics attached, it has to be indexed separately
                         if (metadata.hasStaticColumns())
@@ -220,8 +198,8 @@ public class StorageAttachedIndexBuilder extends SecondaryIndexBuilder
                         }
                     }
 
-                    bytesProcessed += dataPosition - previousDataPosition;
-                    previousDataPosition = dataPosition;
+                    bytesProcessed += keyPosition - previousKeyPosition;
+                    previousKeyPosition = keyPosition;
                 }
 
                 completeSSTable(indexWriter, sstable, indexes, perSSTableFileLock);
@@ -245,7 +223,7 @@ public class StorageAttachedIndexBuilder extends SecondaryIndexBuilder
             }
             else if (t instanceof CompactionInterruptedException)
             {
-                if (isInitialBuild && stopTrigger() != TRUNCATE)
+                if (isInitialBuild && trigger() != TRUNCATE)
                 {
                     logger.error(logMessage("Stop requested while building initial indexes {} on SSTable {}."), indexes, sstable.descriptor);
                     throw Throwables.unchecked(t);
@@ -275,10 +253,14 @@ public class StorageAttachedIndexBuilder extends SecondaryIndexBuilder
     }
 
     @Override
-    public OperationProgress getProgress()
+    public CompactionInfo getCompactionInfo()
     {
-        return new OperationProgress(metadata, OperationType.INDEX_BUILD, bytesProcessed, totalSizeInBytes,
-                                     Unit.BYTES, compactionId, description);
+        return new CompactionInfo(metadata,
+                                  OperationType.INDEX_BUILD,
+                                  bytesProcessed,
+                                  totalSizeInBytes,
+                                  compactionId,
+                                  sstables.keySet());
     }
 
     /**

@@ -38,7 +38,6 @@ import org.apache.cassandra.index.sai.SSTableQueryContext;
 import org.apache.cassandra.index.sai.plan.Expression;
 import org.apache.cassandra.index.sai.utils.LongArray;
 import org.apache.cassandra.index.sai.utils.RangeIterator;
-import org.apache.cassandra.io.sstable.metadata.ZeroCopyMetadata;
 import org.apache.cassandra.io.util.FileUtils;
 
 /**
@@ -57,7 +56,6 @@ public class Segment implements Closeable
     final LongArray.Factory segmentRowIdToTokenFactory;
     final LongArray.Factory segmentRowIdToOffsetFactory;
     final KeyFetcher keyFetcher;
-    final ZeroCopyMetadata zeroCopyMetadata;
     // per-index
     public final SSTableIndex.PerIndexFiles indexFiles;
     // per-segment
@@ -75,7 +73,6 @@ public class Segment implements Closeable
         this.segmentRowIdToTokenFactory = sstableContext.tokenReaderFactory.withOffset(metadata.segmentRowIdOffset);
         this.segmentRowIdToOffsetFactory = sstableContext.offsetReaderFactory.withOffset(metadata.segmentRowIdOffset);
         this.keyFetcher = sstableContext.keyFetcher;
-        this.zeroCopyMetadata = sstableContext.sstable.getSSTableMetadata().zeroCopyMetadata;
         this.indexFiles = indexFiles;
         this.metadata = metadata;
 
@@ -91,7 +88,6 @@ public class Segment implements Closeable
         this.keyFetcher = keyFetcher;
         this.indexFiles = indexFiles;
         this.metadata = metadata;
-        this.zeroCopyMetadata = ZeroCopyMetadata.EMPTY;
         this.minKey = null;
         this.minKeyBound = null;
         this.maxKey = null;
@@ -107,7 +103,6 @@ public class Segment implements Closeable
         this.keyFetcher = null;
         this.indexFiles = null;
         this.metadata = null;
-        this.zeroCopyMetadata = ZeroCopyMetadata.EMPTY;
         this.minKey = minKey;
         this.minKeyBound = minKey.minKeyBound();
         this.maxKey = maxKey;

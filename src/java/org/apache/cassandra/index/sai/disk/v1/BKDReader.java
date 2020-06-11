@@ -29,14 +29,12 @@ import com.google.common.base.Stopwatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.db.monitoring.AbortedOperationException;
 import org.apache.cassandra.index.sai.QueryContext;
 import org.apache.cassandra.index.sai.disk.PostingList;
-import org.apache.cassandra.index.sai.disk.io.CryptoUtils;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.metrics.QueryEventListener;
+import org.apache.cassandra.index.sai.utils.AbortedOperationException;
 import org.apache.cassandra.index.sai.utils.SeekingRandomAccessInput;
-import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.Throwables;
@@ -59,7 +57,6 @@ public class BKDReader extends TraversingBKDReader implements Closeable
 
     private final FileHandle postingsFile;
     private final BKDPostingsIndex postingsIndex;
-    private final ICompressor compressor;
 
     /**
      * Performs a blocking read.
@@ -70,7 +67,6 @@ public class BKDReader extends TraversingBKDReader implements Closeable
         super(indexComponents, kdtreeFile, bkdIndexRoot);
         this.postingsFile = postingsFile;
         this.postingsIndex = new BKDPostingsIndex(postingsFile, bkdPostingsRoot);
-        this.compressor = indexComponents.getEncryptionCompressor();
     }
 
     public static int openPerIndexFiles()
@@ -92,6 +88,7 @@ public class BKDReader extends TraversingBKDReader implements Closeable
         }
     }
 
+    @SuppressWarnings("resource")
     public PostingList intersect(IntersectVisitor visitor, QueryEventListener.BKDIndexEventListener listener, QueryContext context)
     {
         Relation relation = visitor.compare(minPackedValue, maxPackedValue);
@@ -239,10 +236,6 @@ public class BKDReader extends TraversingBKDReader implements Closeable
         private final int[] commonPrefixLengths;
         private final short[] origIndex;
 
-        // reused byte arrays for the decompression of leaf values
-        private final BytesRef uncompBytes = new BytesRef(new byte[16]);
-        private final BytesRef compBytes = new BytesRef(new byte[16]);
-
         FilteringIntersection(IndexInput bkdInput, IndexInput postingsInput, IndexInput postingsSummaryInput,
                               IndexTree index, BKDReader.IntersectVisitor visitor,
                               QueryEventListener.BKDIndexEventListener listener, QueryContext context)
@@ -313,13 +306,6 @@ public class BKDReader extends TraversingBKDReader implements Closeable
             bkdInput.seek(orderMapPointer + orderMapLength);
 
             IndexInput leafInput = bkdInput;
-
-            if (compressor != null)
-            {
-                // This should not throw WouldBlockException, even though we're on a TPC thread, because the
-                // secret key used by the underlying encryptor should be loaded at reader construction time.
-                leafInput = CryptoUtils.uncompress(bkdInput, compressor, compBytes, uncompBytes);
-            }
 
             visitDocValues(commonPrefixLengths, scratchPackedValue1, leafInput, count, visitor, holder);
 
@@ -393,6 +379,7 @@ public class BKDReader extends TraversingBKDReader implements Closeable
             return initFilteringPostingReader(filter, summary);
         }
 
+        @SuppressWarnings("resource")
         private PostingList initFilteringPostingReader(FixedBitSet filter, PostingsReader.BlocksSummary header) throws IOException
         {
             PostingsReader postingsReader = new PostingsReader(postingsInput, header, listener.postingListEventListener());

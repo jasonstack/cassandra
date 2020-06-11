@@ -211,7 +211,7 @@ public class ColumnContext
     public MemtableIndex getPendingMemtableIndex(LifecycleNewTracker tracker)
     {
         return liveMemtables.keySet().stream()
-                            .filter(m -> tracker.equals(m.getTracker()))
+                            .filter(m -> tracker.equals(m.tracker()))
                             .findFirst()
                             .map(liveMemtables::get)
                             .orElse(null);

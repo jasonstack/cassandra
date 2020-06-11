@@ -22,9 +22,7 @@ package org.apache.cassandra.index.sai.functional;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.inject.Injection;
 import org.apache.cassandra.inject.Injections;
@@ -32,7 +30,6 @@ import org.apache.cassandra.inject.InvokePointBuilder;
 
 import static org.junit.Assert.assertFalse;
 
-@Category(NightlyOnly.class)
 public class NodeRestartTest extends AbstractNodeLifecycleTest
 {
     // Failure during the pre-join and initialization tasks shouldn't fail node restart.

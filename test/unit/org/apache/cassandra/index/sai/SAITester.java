@@ -43,16 +43,14 @@ import javax.management.MBeanServerConnection;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 
+import com.google.common.base.Predicates;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
 
-import com.datastax.oss.driver.api.core.CqlSession;
-import com.datastax.oss.driver.api.core.cql.QueryTrace;
-import com.datastax.oss.driver.api.core.cql.ResultSet;
-import com.datastax.oss.driver.api.core.cql.TraceEvent;
-import com.datastax.oss.driver.api.core.servererrors.ReadFailureException;
-import com.googlecode.junittoolbox.PollingWait;
-import com.googlecode.junittoolbox.RunnableAssert;
+import com.datastax.driver.core.QueryTrace;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.ReadFailureException;
 import com.sun.management.UnixOperatingSystemMXBean;
 import org.apache.cassandra.cache.ChunkCache;
 import org.apache.cassandra.cql3.CQLTester;
@@ -60,15 +58,17 @@ import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.ActiveCompactionsTracker;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.index.Index;
+import org.apache.cassandra.index.SecondaryIndexBuilder;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.inject.Injection;
 import org.apache.cassandra.inject.Injections;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.schema.SchemaManager;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Throwables;
@@ -86,7 +86,7 @@ public class SAITester extends CQLTester
     protected static final String CREATE_KEYSPACE_TEMPLATE = "CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}";
 
     protected static final String CREATE_TABLE_TEMPLATE = "CREATE TABLE %s (id1 TEXT PRIMARY KEY, v1 INT, v2 TEXT) WITH compaction = " +
-            "{'class' : 'SizeTieredCompactionStrategy', 'enabled' : false } AND nodesync = {'enabled' : 'false'}";
+            "{'class' : 'SizeTieredCompactionStrategy', 'enabled' : false }";
     protected static final String CREATE_INDEX_TEMPLATE = "CREATE CUSTOM INDEX IF NOT EXISTS ON %%s(%s) USING 'StorageAttachedIndex'";
 
     protected static final String WAIT_FOR_INDEX_FILE_CLEANUP = "wait for index file cleanup";
@@ -97,8 +97,9 @@ public class SAITester extends CQLTester
     protected static int ASSERTION_TIMEOUT_SECONDS = 15;
 
     protected static final Injections.Counter INDEX_BUILD_COUNTER = Injections.newCounter("IndexBuildCounter")
-                    .add(newInvokePoint().onClass(CompactionManager.class).onMethod("submitIndexBuild"))
-                    .build();
+        .add(newInvokePoint().onClass(CompactionManager.class)
+                             .onMethod("submitIndexBuild", "SecondaryIndexBuilder", "ActiveCompactionsTracker"))
+        .build();
 
     protected static ColumnIdentifier V1_COLUMN_IDENTIFIER = ColumnIdentifier.getInterned("v1", true);
     protected static ColumnIdentifier V2_COLUMN_IDENTIFIER = ColumnIdentifier.getInterned("v2", true);
@@ -197,22 +198,36 @@ public class SAITester extends CQLTester
 
         for (SSTableReader sstable : cfs.getLiveSSTables())
         {
-            File file = sstable.descriptor.filenameFor(ndiComponent);
+            File file = sstable.descriptor.fileFor(ndiComponent);
             corruptionType.corrupt(file);
-            ChunkCache.instance.invalidateFile(file);
+            ChunkCache.instance.invalidateFile(file.getPath());
         }
     }
 
     protected void waitForAssert(Runnable runnableAssert, String description, long pollingInterval, long timeout, TimeUnit unit)
     {
-        new PollingWait().pollEvery(pollingInterval, unit).timeoutAfter(timeout, unit).until(new RunnableAssert(description)
+        // TODO use library instead
+        long start = System.nanoTime();
+        long wait = unit.toNanos(timeout);
+        boolean done = false;
+        Throwable toThrow = null;
+
+        while (System.nanoTime() - start <= wait && !done)
         {
-            @Override
-            public void run()
+            try
             {
                 runnableAssert.run();
+                done = true;
             }
-        });
+            catch (Throwable t)
+            {
+                toThrow = t;
+                FBUtilities.sleepQuietly(100);
+            }
+        }
+
+        if (!done)
+            throw Throwables.cleaned(toThrow);
     }
 
     protected void waitForAssert(Runnable assertion, String description)
@@ -282,7 +297,7 @@ public class SAITester extends CQLTester
     protected static void assertFailureReason(ReadFailureException e, RequestFailureReason reason)
     {
         int expected = reason.codeForNativeProtocol();
-        int actual = e.getReasonMap().get(FBUtilities.getBroadcastAddress());
+        int actual = e.getFailuresMap().get(FBUtilities.getBroadcastAddressAndPort().address);
         assertEquals(expected, actual);
     }
 
@@ -322,7 +337,7 @@ public class SAITester extends CQLTester
             {
                 throw new RuntimeException(ex);
             }
-        }, "wait for index to be queryable", 3, 600, TimeUnit.SECONDS);
+        }, "wait for index to be queryable", 3, 60, TimeUnit.SECONDS);
     }
 
     protected void startCompaction() throws Throwable
@@ -340,7 +355,7 @@ public class SAITester extends CQLTester
         waitForAssert(() -> {
             try
             {
-                assertFalse(CompactionManager.instance.isCompacting(ColumnFamilyStore.all()));
+                assertFalse(CompactionManager.instance.isCompacting(ColumnFamilyStore.all(), Predicates.alwaysTrue()));
             }
             catch (Throwable ex)
             {
@@ -452,7 +467,7 @@ public class SAITester extends CQLTester
 
     protected void releaseIndexFiles()
     {
-        ColumnFamilyStore cfs = SchemaManager.instance.getKeyspaceInstance(KEYSPACE).getColumnFamilyStore(currentTable());
+        ColumnFamilyStore cfs = Schema.instance.getKeyspaceInstance(KEYSPACE).getColumnFamilyStore(currentTable());
         StorageAttachedIndexGroup.getIndexGroup(cfs).sstableContextManager().clear();
         for (Index index : cfs.indexManager.listIndexes())
         {
@@ -463,7 +478,7 @@ public class SAITester extends CQLTester
 
     protected int getOpenIndexFiles() throws Throwable
     {
-        ColumnFamilyStore cfs = SchemaManager.instance.getKeyspaceInstance(KEYSPACE).getColumnFamilyStore(currentTable());
+        ColumnFamilyStore cfs = Schema.instance.getKeyspaceInstance(KEYSPACE).getColumnFamilyStore(currentTable());
         return StorageAttachedIndexGroup.getIndexGroup(cfs).openIndexFiles();
     }
 
@@ -514,7 +529,7 @@ public class SAITester extends CQLTester
         Set<Component> components = cfs.indexManager.listIndexGroups()
                 .stream()
                 .filter(g -> g instanceof StorageAttachedIndexGroup)
-                .map(Index.Group::getComponents)
+                .map(g -> ((StorageAttachedIndexGroup) g).getComponents())
                 .flatMap(Set::stream)
                 .collect(Collectors.toSet());
 
@@ -606,16 +621,16 @@ public class SAITester extends CQLTester
         return CompactionManager.instance.getActiveCompactions() + CompactionManager.instance.getPendingTasks();
     }
 
-    protected String getSingleTraceStatement(CqlSession session, String query, String contains) throws Throwable
+    protected String getSingleTraceStatement(Session session, String query, String contains) throws Throwable
     {
         query = String.format(query, KEYSPACE + "." + currentTable());
-        QueryTrace trace = session.execute(session.prepare(query).bind().setTracing(true)).getExecutionInfo().getQueryTrace();
+        QueryTrace trace = session.execute(session.prepare(query).bind().enableTracing()).getExecutionInfo().getQueryTrace();
         waitForTracingEvents();
 
-        for (TraceEvent event : trace.getEvents())
+        for (QueryTrace.Event event : trace.getEvents())
         {
-            if (event.getActivity().contains(contains))
-                return event.getActivity();
+            if (event.toString().contains(contains))
+                return event.toString();
         }
         return null;
     }

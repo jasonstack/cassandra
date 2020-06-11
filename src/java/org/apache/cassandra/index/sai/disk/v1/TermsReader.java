@@ -28,18 +28,17 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.bdp.db.tries.util.ByteSourceUtil;
-import org.apache.cassandra.concurrent.TPCUtils;
-import org.apache.cassandra.db.monitoring.AbortedOperationException;
 import org.apache.cassandra.index.sai.QueryContext;
 import org.apache.cassandra.index.sai.disk.PostingList;
 import org.apache.cassandra.index.sai.disk.TermsIterator;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.metrics.QueryEventListener;
+import org.apache.cassandra.index.sai.utils.AbortedOperationException;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.ByteComparable;
 import org.apache.cassandra.utils.ByteSource;
+import org.apache.cassandra.utils.ByteSourceUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.lucene.store.IndexInput;
@@ -118,7 +117,6 @@ public class TermsReader implements Closeable
     public TermsIterator allTerms(QueryEventListener.TrieIndexEventListener listener)
     {
         // blocking, since we use it only for segment merging for now
-        assert !TPCUtils.isTPCThread();
         return new TermsScanner(listener);
     }
 
@@ -222,6 +220,7 @@ public class TermsReader implements Closeable
             this.listener = listener;
         }
 
+        @SuppressWarnings("resource")
         @Override
         public PostingList postings() throws IOException
         {

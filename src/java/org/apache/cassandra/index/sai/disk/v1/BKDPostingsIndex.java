@@ -26,7 +26,6 @@ import com.carrotsearch.hppc.IntLongHashMap;
 import com.carrotsearch.hppc.IntLongMap;
 import org.apache.cassandra.index.sai.disk.io.IndexInputReader;
 import org.apache.cassandra.io.util.FileHandle;
-import org.apache.cassandra.io.util.RandomAccessReader;
 
 import static org.apache.cassandra.index.sai.utils.SAICodecUtils.validate;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -42,9 +41,8 @@ class BKDPostingsIndex
 
     BKDPostingsIndex(FileHandle postingsFileHandle, long filePosition) throws IOException
     {
-        try (final RandomAccessReader reader = postingsFileHandle.createReader())
+        try (final IndexInputReader input = IndexInputReader.create(postingsFileHandle.createReader()))
         {
-            final IndexInputReader input = IndexInputReader.create(reader);
             validate(input);
             input.seek(filePosition);
 

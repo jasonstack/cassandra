@@ -25,9 +25,7 @@ import java.util.function.IntFunction;
 
 import com.google.common.base.MoreObjects;
 
-import org.apache.cassandra.index.sai.disk.io.CryptoUtils;
 import org.apache.cassandra.index.sai.disk.io.RAMIndexOutput;
-import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.lucene.codecs.MutablePointValues;
 import org.apache.lucene.index.PointValues;
 import org.apache.lucene.store.DataOutput;
@@ -125,19 +123,16 @@ public class BKDWriter implements Closeable
 
     private final int maxDoc;
 
-    private final ICompressor compressor;
-
-    public BKDWriter(int maxDoc, int numDims, int bytesPerDim,
-            int maxPointsInLeafNode, double maxMBSortInHeap, long totalPointCount, boolean singleValuePerDoc,
-            ICompressor compressor) throws IOException
+    public BKDWriter(int maxDoc, int numDims, int bytesPerDim, int maxPointsInLeafNode,
+                     double maxMBSortInHeap, long totalPointCount, boolean singleValuePerDoc) throws IOException
     {
         this(maxDoc, numDims, bytesPerDim, maxPointsInLeafNode, maxMBSortInHeap, totalPointCount, singleValuePerDoc,
-             totalPointCount > Integer.MAX_VALUE, compressor);
+             totalPointCount > Integer.MAX_VALUE);
     }
 
     protected BKDWriter(int maxDoc, int numDims, int bytesPerDim,
                         int maxPointsInLeafNode, double maxMBSortInHeap, long totalPointCount,
-                        boolean singleValuePerDoc, boolean longOrds, ICompressor compressor) throws IOException
+                        boolean singleValuePerDoc, boolean longOrds) throws IOException
     {
         verifyParams(numDims, maxPointsInLeafNode, maxMBSortInHeap, totalPointCount);
         // We use tracking dir to deal with removing files on exception, so each place that
@@ -147,7 +142,6 @@ public class BKDWriter implements Closeable
         this.bytesPerDim = bytesPerDim;
         this.totalPointCount = totalPointCount;
         this.maxDoc = maxDoc;
-        this.compressor = compressor;
         docsSeen = new FixedBitSet(maxDoc);
         packedBytesLength = numDims * bytesPerDim;
 
@@ -509,14 +503,7 @@ public class BKDWriter implements Closeable
 
             writeLeafBlockPackedValues(scratchOut, commonPrefixLengths, leafCount, 0, packedValues);
 
-            if (compressor == null)
-            {
-                out.writeBytes(scratchOut.getBytes(), 0, scratchOut.getPosition());
-            }
-            else
-            {
-                CryptoUtils.compress(new BytesRef(scratchOut.getBytes(), 0, scratchOut.getPosition()), scratchBytesRef, out, compressor);
-            }
+            out.writeBytes(scratchOut.getBytes(), 0, scratchOut.getPosition());
             scratchOut.reset();
         }
     }
@@ -607,6 +594,7 @@ public class BKDWriter implements Closeable
     }
 
     /** Packs the two arrays, representing a balanced binary tree, into a compact byte[] structure. */
+    @SuppressWarnings("resource")
     private byte[] packIndex(long[] leafBlockFPs, byte[] splitPackedValues) throws IOException
     {
 
@@ -857,32 +845,14 @@ public class BKDWriter implements Closeable
         assert numLeaves > 0;
         out.writeVInt(numLeaves);
 
-        if (compressor != null)
-        {
-            RAMIndexOutput ramOut = new RAMIndexOutput("");
-            ramOut.writeBytes(minPackedValue, 0, packedBytesLength);
-            ramOut.writeBytes(maxPackedValue, 0, packedBytesLength);
-
-            CryptoUtils.compress(new BytesRef(ramOut.getBytes(), 0, (int)ramOut.getFilePointer()), out, compressor);
-        }
-        else
-        {
-            out.writeBytes(minPackedValue, 0, packedBytesLength);
-            out.writeBytes(maxPackedValue, 0, packedBytesLength);
-        }
+        out.writeBytes(minPackedValue, 0, packedBytesLength);
+        out.writeBytes(maxPackedValue, 0, packedBytesLength);
 
         out.writeVLong(pointCount);
         out.writeVInt(docsSeen.cardinality());
 
-        if (compressor != null)
-        {
-            CryptoUtils.compress(new BytesRef(packedIndex, 0, packedIndex.length), out, compressor);
-        }
-        else
-        {
-            out.writeVInt(packedIndex.length);
-            out.writeBytes(packedIndex, 0, packedIndex.length);
-        }
+        out.writeVInt(packedIndex.length);
+        out.writeBytes(packedIndex, 0, packedIndex.length);
     }
 
     private void writeLeafBlockPackedValues(DataOutput out, int[] commonPrefixLengths, int count, int sortedDim, IntFunction<BytesRef> packedValues) throws IOException

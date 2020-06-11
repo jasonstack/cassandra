@@ -23,6 +23,7 @@ package org.apache.cassandra.index.sai.virtual;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.apache.cassandra.db.virtual.SimpleDataSet;
 import org.apache.cassandra.index.sai.ColumnContext;
 import org.apache.cassandra.index.sai.SSTableIndex;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
@@ -34,14 +35,12 @@ import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.marshal.MapType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.virtual.AbstractVirtualTable;
-import org.apache.cassandra.db.virtual.DataSet;
 import org.apache.cassandra.db.virtual.VirtualTable;
 import org.apache.cassandra.dht.LocalPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.schema.SchemaConstants;
-import org.apache.cassandra.schema.SchemaManager;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 
 /**
@@ -49,8 +48,6 @@ import org.apache.cassandra.schema.TableMetadata;
  */
 public class SegmentsSystemView extends AbstractVirtualTable
 {
-    public static final VirtualTable INSTANCE = new SegmentsSystemView();
-
     static final String NAME = "sstable_index_segments";
 
     static final String KEYSPACE_NAME = "keyspace_name";
@@ -68,10 +65,10 @@ public class SegmentsSystemView extends AbstractVirtualTable
     static final String MAX_TERM = "max_term";
     static final String COMPONENT_METADATA = "component_metadata";
 
-    private SegmentsSystemView()
+    public SegmentsSystemView(String keyspace)
     {
-        super(TableMetadata.builder(SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME, NAME)
-                           .partitioner(new LocalPartitioner<>(UTF8Type.instance))
+        super(TableMetadata.builder(keyspace, NAME)
+                           .partitioner(new LocalPartitioner(UTF8Type.instance))
                            .comment("SSTable index segment metadata")
                            .kind(TableMetadata.Kind.VIRTUAL)
                            .addPartitionKeyColumn(KEYSPACE_NAME, UTF8Type.instance)
@@ -97,7 +94,7 @@ public class SegmentsSystemView extends AbstractVirtualTable
     @Override
     public DataSet data()
     {
-        DataSet dataset = newDataSet();
+        SimpleDataSet dataset = new SimpleDataSet(metadata());
 
         forEachIndex(columnContext -> {
             for (SSTableIndex sstableIndex : columnContext.getView())
@@ -109,18 +106,17 @@ public class SegmentsSystemView extends AbstractVirtualTable
 
                 for (SegmentMetadata metadata : segments)
                 {
-                    dataset.addRow(sstable.metadata().keyspace,
-                            dataset.newRowBuilder(columnContext.getIndexName(), sstable.getFilename().getName(), metadata.segmentRowIdOffset)
-                                    .addColumn(TABLE_NAME, () -> descriptor.cfname)
-                                    .addColumn(COLUMN_NAME, columnContext::getColumnName)
-                                    .addColumn(CELL_COUNT, () -> metadata.numRows)
-                                    .addColumn(MIN_SSTABLE_ROW_ID, () -> metadata.minSSTableRowId)
-                                    .addColumn(MAX_SSTABLE_ROW_ID, () -> metadata.maxSSTableRowId)
-                                    .addColumn(START_TOKEN, () -> tokenFactory.toString(metadata.minKey.getToken()))
-                                    .addColumn(END_TOKEN, () -> tokenFactory.toString(metadata.maxKey.getToken()))
-                                    .addColumn(MIN_TERM, () -> columnContext.getValidator().getSerializer().deserialize(metadata.minTerm).toString())
-                                    .addColumn(MAX_TERM, () -> columnContext.getValidator().getSerializer().deserialize(metadata.maxTerm).toString())
-                                    .addColumn(COMPONENT_METADATA, () -> metadata.componentMetadatas.asMap()));
+                    dataset.row(sstable.metadata().keyspace, columnContext.getIndexName(), sstable.getFilename(), metadata.segmentRowIdOffset)
+                           .column(TABLE_NAME, descriptor.cfname)
+                           .column(COLUMN_NAME, columnContext.getColumnName())
+                           .column(CELL_COUNT, metadata.numRows)
+                           .column(MIN_SSTABLE_ROW_ID, metadata.minSSTableRowId)
+                           .column(MAX_SSTABLE_ROW_ID, metadata.maxSSTableRowId)
+                           .column(START_TOKEN, tokenFactory.toString(metadata.minKey.getToken()))
+                           .column(END_TOKEN, tokenFactory.toString(metadata.maxKey.getToken()))
+                           .column(MIN_TERM, columnContext.getValidator().getSerializer().deserialize(metadata.minTerm).toString())
+                           .column(MAX_TERM, columnContext.getValidator().getSerializer().deserialize(metadata.maxTerm).toString())
+                           .column(COMPONENT_METADATA, metadata.componentMetadatas.asMap());
                 }
             }
         });
@@ -130,9 +126,9 @@ public class SegmentsSystemView extends AbstractVirtualTable
 
     private void forEachIndex(Consumer<ColumnContext> process)
     {
-        for (String ks : SchemaManager.instance.getUserKeyspaces())
+        for (String ks : Schema.instance.getUserKeyspaces())
         {
-            Keyspace keyspace = SchemaManager.instance.getKeyspaceInstance(ks);
+            Keyspace keyspace = Schema.instance.getKeyspaceInstance(ks);
             if (keyspace == null)
                 throw new IllegalArgumentException("Unknown keyspace " + ks);
 

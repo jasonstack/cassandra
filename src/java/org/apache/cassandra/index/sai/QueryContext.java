@@ -25,7 +25,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.monitoring.AbortedOperationException;
+import org.apache.cassandra.index.sai.utils.AbortedOperationException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 
 /**
@@ -66,7 +66,7 @@ public class QueryContext
     @VisibleForTesting
     public QueryContext()
     {
-        this(DatabaseDescriptor.getRangeRpcTimeout());
+        this(DatabaseDescriptor.getRangeRpcTimeout(TimeUnit.MILLISECONDS));
     }
 
     public QueryContext(long executionQuotaMs)

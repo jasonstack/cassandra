@@ -33,7 +33,6 @@ import org.apache.cassandra.index.sai.metrics.MulticastQueryEventListeners;
 import org.apache.cassandra.index.sai.metrics.QueryEventListener;
 import org.apache.cassandra.index.sai.plan.Expression;
 import org.apache.cassandra.index.sai.utils.RangeIterator;
-import org.apache.cassandra.concurrent.TPCUtils;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.apache.cassandra.index.sai.disk.BKDQueries.bkdQueryFrom;
@@ -66,11 +65,10 @@ public class KDTreeIndexSearcher extends IndexSearcher
 
     }
 
+    @SuppressWarnings("resource")
     @Override
     public RangeIterator search(Expression exp, SSTableQueryContext context)
     {
-        assert !TPCUtils.isTPCThread() : Thread.currentThread().getName();
-
         if (logger.isTraceEnabled())
             logger.trace(indexComponents.logMessage("Searching on expression '{}'..."), exp);
 

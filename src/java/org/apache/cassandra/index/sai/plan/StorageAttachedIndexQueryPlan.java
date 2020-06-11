@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableSet;
@@ -113,15 +114,9 @@ public class StorageAttachedIndexQueryPlan implements Index.QueryPlan
     }
 
     @Override
-    public boolean shouldEstimateInitialConcurrency()
-    {
-        return false;
-    }
-
-    @Override
     public Index.Searcher searcherFor(ReadCommand command)
     {
-        return new StorageAttachedIndexSearcher(cfs, queryMetrics, command, expressions, DatabaseDescriptor.getRangeRpcTimeout());
+        return new StorageAttachedIndexSearcher(cfs, queryMetrics, command, expressions, DatabaseDescriptor.getRangeRpcTimeout(TimeUnit.MILLISECONDS));
     }
 
     /**
@@ -133,12 +128,5 @@ public class StorageAttachedIndexQueryPlan implements Index.QueryPlan
     public RowFilter postIndexQueryFilter()
     {
         return postIndexFilter;
-    }
-
-    @Override
-    public boolean supportsMultiRangeReadCommand()
-    {
-        // will be ported later in CASSANDRA-15774
-        return false;
     }
 }

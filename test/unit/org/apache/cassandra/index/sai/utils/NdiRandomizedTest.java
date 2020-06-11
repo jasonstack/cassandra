@@ -21,11 +21,13 @@
 package org.apache.cassandra.index.sai.utils;
 
 import java.io.IOException;
+import java.util.Random;
 
 import com.google.common.base.Preconditions;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
+import org.junit.Ignore;
 import org.junit.rules.RuleChain;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestRule;
@@ -40,6 +42,7 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.util.SequentialWriterOption;
 
 @ThreadLeakScope(ThreadLeakScope.Scope.NONE)
+@Ignore
 public class NdiRandomizedTest extends RandomizedTest
 {
     private static Thread.UncaughtExceptionHandler handler;
@@ -80,7 +83,7 @@ public class NdiRandomizedTest extends RandomizedTest
                         .trickleFsync(randomBoolean())
                         .trickleFsyncByteInterval(nextInt(1 << 10, 1 << 16))
                         .finishOnClose(true)
-                        .build(), null);
+                        .build());
     }
 
     /**
@@ -184,5 +187,20 @@ public class NdiRandomizedTest extends RandomizedTest
             rowCounter++;
         }
         assertEquals(PostingList.END_OF_STREAM, expected.nextPosting());
+    }
+
+    public static int[] shuffle(int[] array)
+    {
+        Random rgen = new Random();
+
+        for (int i=0; i< array.length; i++)
+        {
+            int randomPosition = rgen.nextInt(array.length);
+            int temp = array[i];
+            array[i] = array[randomPosition];
+            array[randomPosition] = temp;
+        }
+
+        return array;
     }
 }

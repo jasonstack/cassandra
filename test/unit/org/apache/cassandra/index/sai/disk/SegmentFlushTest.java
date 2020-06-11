@@ -37,6 +37,7 @@ import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.BufferCell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.index.sai.ColumnContext;
@@ -136,7 +137,7 @@ public class SegmentFlushTest
                                                   UTF8Type.instance, new ClusteringComparator(),
                                                   column, IndexWriterConfig.defaultConfig("test"));
 
-        SSTableIndexWriter writer = new SSTableIndexWriter(descriptor, context, StorageAttachedIndex.SEGMENT_BUILD_MEMORY_LIMITER, () -> true, null);
+        SSTableIndexWriter writer = new SSTableIndexWriter(descriptor, context, StorageAttachedIndex.SEGMENT_BUILD_MEMORY_LIMITER, () -> true);
 
         List<DecoratedKey> keys = Arrays.asList(dk("1"), dk("2"));
         Collections.sort(keys);
@@ -154,11 +155,11 @@ public class SegmentFlushTest
 
         writer.flush();
 
-        IndexComponents components = IndexComponents.create(column.toString(), descriptor, (CompressionParams)null);
+        IndexComponents components = IndexComponents.create(column.toString(), descriptor);
         MetadataSource source = MetadataSource.loadColumnMetadata(components);
 
         // verify segment count
-        List<SegmentMetadata> segmentMetadatas = SegmentMetadata.load(source, components.getEncryptionCompressor());
+        List<SegmentMetadata> segmentMetadatas = SegmentMetadata.load(source);
         assertEquals(segments, segmentMetadatas.size());
 
         // verify segment metadata
@@ -237,7 +238,7 @@ public class SegmentFlushTest
 
     private Row createRow(ColumnMetadata column, ByteBuffer value)
     {
-        Row.Builder builder1 = Row.Builder.sorted();
+        Row.Builder builder1 = BTreeRow.sortedBuilder();
         builder1.newRow(Clustering.EMPTY);
         builder1.addCell(BufferCell.live(column, 0, value));
         return builder1.build();

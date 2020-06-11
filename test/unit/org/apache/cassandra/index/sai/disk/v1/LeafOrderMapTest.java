@@ -20,7 +20,8 @@
  */
 package org.apache.cassandra.index.sai.disk.v1;
 
-import org.apache.commons.math3.util.MathArrays;
+import java.util.Random;
+
 import org.junit.Test;
 
 import org.apache.cassandra.index.sai.disk.io.RAMIndexOutput;
@@ -38,7 +39,7 @@ public class LeafOrderMapTest extends NdiRandomizedTest
         {
             array[x] = x;
         }
-        MathArrays.shuffle(array);
+        shuffle(array);
 
         RAMIndexOutput out = new RAMIndexOutput("");
 

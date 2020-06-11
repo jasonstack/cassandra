@@ -55,7 +55,7 @@ public class KeyRangeIterator extends RangeIterator
     protected Token computeNext()
     {
         DecoratedKey key = computeNextKey();
-        return key == null ? endOfData() : new InMemoryToken(key.getToken().getLongValue(), key);
+        return key == null ? endOfData() : new InMemoryToken((Long) key.getToken().getTokenValue(), key);
     }
 
     private DecoratedKey computeNextKey()

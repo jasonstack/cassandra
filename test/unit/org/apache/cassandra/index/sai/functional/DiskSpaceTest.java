@@ -21,13 +21,9 @@
 package org.apache.cassandra.index.sai.functional;
 
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
-
-import org.apache.cassandra.categories.NightlyOnly;
 
 import static org.junit.Assert.assertEquals;
 
-@Category(NightlyOnly.class)
 public class DiskSpaceTest extends AbstractNodeLifecycleTest
 {
     @Test

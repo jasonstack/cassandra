@@ -28,12 +28,11 @@ import java.util.stream.Collectors;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
+import org.junit.Ignore;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
-import org.apache.cassandra.categories.NightlyOnly;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.plan.StorageAttachedIndexSearcher;
 import org.apache.cassandra.inject.Injections;
@@ -62,6 +61,7 @@ import static org.junit.Assert.assertThat;
  * 7.) ...queries across various paging and limit settings.
  */
 @RunWith(Parameterized.class)
+@Ignore
 public abstract class AbstractIndexQueryTest extends SAITester
 {
     static List<BaseQuerySet> BASE_QUERY_SETS = ImmutableList.of(new BaseQuerySet(10, 5),
@@ -130,7 +130,6 @@ public abstract class AbstractIndexQueryTest extends SAITester
         executeQueries(dataModel, sets);
     }
 
-    @Category(NightlyOnly.class)
     @Test
     public void testRowDeletions() throws Throwable
     {
@@ -164,7 +163,6 @@ public abstract class AbstractIndexQueryTest extends SAITester
         executeQueries(dataModel, sets);
     }
 
-    @Category(NightlyOnly.class)
     @Test
     public void testCellDeletions() throws Throwable
     {
@@ -292,17 +290,17 @@ public abstract class AbstractIndexQueryTest extends SAITester
 
             rangeQuery(tester, model, DataModel.BIGINT_COLUMN, 3000000000L, 7000000000L);
 
-            query(tester, model, DataModel.DATE_COLUMN, Operator.EQ, SimpleDateType.instance.fromString("2013-6-10"));
-            query(tester, model, DataModel.DATE_COLUMN, Operator.EQ, SimpleDateType.instance.fromString("2013-6-17"));
-            query(tester, model, DataModel.DATE_COLUMN, Operator.LT, SimpleDateType.instance.fromString("2013-6-17"));
-            query(tester, model, DataModel.DATE_COLUMN, Operator.LTE, SimpleDateType.instance.fromString("2013-6-17"));
-            query(tester, model, DataModel.DATE_COLUMN, Operator.GT, SimpleDateType.instance.fromString("2013-6-17"));
-            query(tester, model, DataModel.DATE_COLUMN, Operator.GTE, SimpleDateType.instance.fromString("2013-6-17"));
-            query(tester, model, DataModel.DATE_COLUMN, Operator.EQ, SimpleDateType.instance.fromString("2017-1-1"));
-            query(tester, model, DataModel.DATE_COLUMN, Operator.LT, SimpleDateType.instance.fromString("2000-1-1"));
-            query(tester, model, DataModel.DATE_COLUMN, Operator.GT, SimpleDateType.instance.fromString("2020-1-1"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.EQ, SimpleDateType.instance.fromString("2013-06-10"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.EQ, SimpleDateType.instance.fromString("2013-06-17"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.LT, SimpleDateType.instance.fromString("2013-06-17"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.LTE, SimpleDateType.instance.fromString("2013-06-17"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.GT, SimpleDateType.instance.fromString("2013-06-17"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.GTE, SimpleDateType.instance.fromString("2013-06-17"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.EQ, SimpleDateType.instance.fromString("2017-01-01"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.LT, SimpleDateType.instance.fromString("2000-01-01"));
+            query(tester, model, DataModel.DATE_COLUMN, Operator.GT, SimpleDateType.instance.fromString("2020-01-01"));
 
-            rangeQuery(tester, model, DataModel.DATE_COLUMN, SimpleDateType.instance.fromString("2013-6-17"), SimpleDateType.instance.fromString("2018-6-19"));
+            rangeQuery(tester, model, DataModel.DATE_COLUMN, SimpleDateType.instance.fromString("2013-06-17"), SimpleDateType.instance.fromString("2018-06-19"));
 
             query(tester, model, DataModel.DOUBLE_COLUMN, Operator.EQ, 43203.90);
             query(tester, model, DataModel.DOUBLE_COLUMN, Operator.EQ, 7800.06);
@@ -381,8 +379,8 @@ public abstract class AbstractIndexQueryTest extends SAITester
             query(tester, model, DataModel.TIMESTAMP_COLUMN, Operator.GT, TimestampType.instance.fromString("2020-01-01T00:00:00"));
 
             rangeQuery(tester, model, DataModel.TIMESTAMP_COLUMN,
-                       TimestampType.instance.fromString("2013-6-17T00:00:00"),
-                       TimestampType.instance.fromString("2018-6-19T00:00:00"));
+                       TimestampType.instance.fromString("2013-06-17T00:00:00"),
+                       TimestampType.instance.fromString("2018-06-19T00:00:00"));
 
             query(tester, model, DataModel.UUID_COLUMN, Operator.EQ, UUIDType.instance.fromString("e37394dc-d17b-11e8-a8d5-f2801f1b9fd1"));
             query(tester, model, DataModel.UUID_COLUMN, Operator.EQ, UUIDType.instance.fromString("752355f8-405b-4d94-88f3-9992cda30f1e"));

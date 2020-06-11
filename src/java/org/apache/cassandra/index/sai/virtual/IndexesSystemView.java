@@ -20,12 +20,6 @@
  */
 package org.apache.cassandra.index.sai.virtual;
 
-import java.util.function.Consumer;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import io.reactivex.Completable;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.BooleanType;
@@ -34,17 +28,16 @@ import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.virtual.AbstractVirtualTable;
-import org.apache.cassandra.db.virtual.DataSet;
+import org.apache.cassandra.db.virtual.SimpleDataSet;
 import org.apache.cassandra.db.virtual.VirtualTable;
 import org.apache.cassandra.dht.LocalPartitioner;
-import org.apache.cassandra.index.Index;
+import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.index.sai.ColumnContext;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.index.sai.StorageAttachedIndexGroup;
 import org.apache.cassandra.index.sai.view.View;
-import org.apache.cassandra.schema.SchemaConstants;
-import org.apache.cassandra.schema.SchemaManager;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 
 /**
@@ -52,10 +45,6 @@ import org.apache.cassandra.schema.TableMetadata;
  */
 public class IndexesSystemView extends AbstractVirtualTable
 {
-    private static final Logger logger = LoggerFactory.getLogger(IndexesSystemView.class);
-
-    public static final VirtualTable INSTANCE = new IndexesSystemView();
-
     static final String NAME = "indexes";
 
     static final String KEYSPACE_NAME = "keyspace_name";
@@ -71,10 +60,10 @@ public class IndexesSystemView extends AbstractVirtualTable
     static final String PER_TABLE_DISK_SIZE = "per_table_disk_size";
     static final String PER_COLUMN_DISK_SIZE = "per_column_disk_size";
 
-    private IndexesSystemView()
+    public IndexesSystemView(String keyspace)
     {
-        super(TableMetadata.builder(SchemaConstants.SYSTEM_VIEWS_KEYSPACE_NAME, NAME)
-                           .partitioner(new LocalPartitioner<>(UTF8Type.instance))
+        super(TableMetadata.builder(keyspace, NAME)
+                           .partitioner(new LocalPartitioner(UTF8Type.instance))
                            .comment("Storage-attached column index metadata")
                            .kind(TableMetadata.Kind.VIRTUAL)
                            .addPartitionKeyColumn(KEYSPACE_NAME, UTF8Type.instance)
@@ -94,20 +83,20 @@ public class IndexesSystemView extends AbstractVirtualTable
 
 
     @Override
-    public Completable apply(PartitionUpdate update)
+    public void apply(PartitionUpdate update)
     {
-        // Load the existing data, so update can be applied.
-        return data().apply(update);
+        // TODO port DataSet. Now we cann't change index queryability via system view
+        throw new InvalidRequestException("Modification is not supported by table " + metadata);
     }
 
     @Override
     public DataSet data()
     {
-        DataSet dataset = newDataSet();
+        SimpleDataSet dataset = new SimpleDataSet(metadata());
 
-        for (String ks : SchemaManager.instance.getUserKeyspaces())
+        for (String ks : Schema.instance.getUserKeyspaces())
         {
-            Keyspace keyspace = SchemaManager.instance.getKeyspaceInstance(ks);
+            Keyspace keyspace = Schema.instance.getKeyspaceInstance(ks);
             if (keyspace == null)
                 throw new IllegalArgumentException("Unknown keyspace " + ks);
 
@@ -124,35 +113,22 @@ public class IndexesSystemView extends AbstractVirtualTable
                         String indexName = context.getIndexName();
                         View view = context.getView();
 
-                        dataset.addRow(ks,
-                                       dataset.newRowBuilder(indexName)
-                                              .addColumn(TABLE_NAME, () -> cfs.name)
-                                              .addColumn(COLUMN_NAME, context::getColumnName)
-                                              .addColumn(IS_QUERYABLE, () -> manager.isIndexQueryable(index), isQueryableUpdateConsumer(manager, index))
-                                              .addColumn(IS_BUILDING, () -> manager.isIndexBuilding(indexName))
-                                              .addColumn(IS_STRING, context::isString)
-                                              .addColumn(ANALYZER, () -> context.getAnalyzer().toString())
-                                              .addColumn(INDEXED_SSTABLE_COUNT, view::size)
-                                              .addColumn(CELL_COUNT, context::getCellCount)
-                                              .addColumn(PER_TABLE_DISK_SIZE, group::diskUsage)
-                                              .addColumn(PER_COLUMN_DISK_SIZE, context::diskUsage));
+                        dataset.row(ks, indexName)
+                               .column(TABLE_NAME, cfs.name)
+                               .column(COLUMN_NAME, context.getColumnName())
+                               .column(IS_QUERYABLE, manager.isIndexQueryable(index))
+                               .column(IS_BUILDING, manager.isIndexBuilding(indexName))
+                               .column(IS_STRING, context.isString())
+                               .column(ANALYZER, context.getAnalyzer().toString())
+                               .column(INDEXED_SSTABLE_COUNT, view.size())
+                               .column(CELL_COUNT, context.getCellCount())
+                               .column(PER_TABLE_DISK_SIZE, group.diskUsage())
+                               .column(PER_COLUMN_DISK_SIZE, context.diskUsage());
                     }
                 }
             }
         }
 
         return dataset;
-    }
-
-    private static Consumer<Boolean> isQueryableUpdateConsumer(SecondaryIndexManager manager, StorageAttachedIndex index)
-    {
-        return isQueryable -> {
-            logger.debug(index.getContext().logMessage("Index is now {}queryable."), isQueryable ? "" : "non-");
-
-            if (isQueryable)
-                manager.makeIndexQueryable(index, Index.Status.BUILD_SUCCEEDED);
-            else
-                manager.makeIndexNonQueryable(index, Index.Status.BUILD_FAILED);
-        };
     }
 }

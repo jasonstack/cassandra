@@ -31,7 +31,6 @@ import org.apache.cassandra.index.sai.disk.io.IndexComponents;
 import org.apache.cassandra.index.sai.disk.io.TrackingIndexComponents;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.util.SequentialWriterOption;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.lucene.store.IndexInput;
 
 import static org.junit.Assert.assertTrue;
@@ -40,10 +39,9 @@ public class IndexComponentsLeakDetector extends TestRuleAdapter
 {
     private final static Set<TrackingIndexComponents> trackedIndexComponents = Collections.synchronizedSet(new HashSet<>());
 
-    public IndexComponents newIndexComponents(String column, Descriptor descriptor, SequentialWriterOption sequentialWriterOption,
-            CompressionParams params)
+    public IndexComponents newIndexComponents(String column, Descriptor descriptor, SequentialWriterOption sequentialWriterOption)
     {
-        final TrackingIndexComponents components = new TrackingIndexComponents(column, descriptor, sequentialWriterOption, params);
+        final TrackingIndexComponents components = new TrackingIndexComponents(column, descriptor, sequentialWriterOption);
         trackedIndexComponents.add(components);
         return components;
     }

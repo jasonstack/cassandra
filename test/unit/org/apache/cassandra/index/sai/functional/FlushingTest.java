@@ -22,8 +22,8 @@ package org.apache.cassandra.index.sai.functional;
 
 import org.junit.Test;
 
+import com.datastax.driver.core.ResultSet;
 import org.apache.cassandra.index.sai.disk.v1.NumericIndexWriter;
-import com.datastax.oss.driver.api.core.cql.ResultSet;
 
 import static org.junit.Assert.assertEquals;
 

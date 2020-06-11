@@ -38,6 +38,7 @@ import org.apache.cassandra.io.util.FileUtils;
  * ex. (1, 2, 2, 3) + (3, 4, 4, 6, 6, 7) -> (1, 2, 2, 3, 3, 4, 4, 6, 6, 7)
  *
  */
+@SuppressWarnings("resource")
 public class RangeConcatIterator extends RangeIterator
 {
     private final PriorityQueue<RangeIterator> ranges;

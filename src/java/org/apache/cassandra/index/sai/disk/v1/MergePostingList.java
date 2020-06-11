@@ -41,6 +41,7 @@ import static com.google.common.base.Preconditions.checkState;
  * Merges multiple {@link PostingList} which individually contain unique items into a single list.
  */
 @NotThreadSafe
+// TODO can be simplified as it's now synchronous
 public class MergePostingList implements PostingList
 {
     private static final Comparator<PeekingPostingList> ROW_ID_COMPARATOR = Comparator.comparingInt(o -> o.currentRowID);
@@ -114,7 +115,7 @@ public class MergePostingList implements PostingList
         return size;
     }
 
-
+    @SuppressWarnings("resource")
     @Override
     public final int nextPosting() throws IOException
     {

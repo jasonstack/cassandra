@@ -24,17 +24,14 @@ import java.util.LinkedList;
 import java.util.List;
 
 import org.junit.Before;
-import org.junit.experimental.categories.Category;
 import org.junit.runners.Parameterized;
 
-import org.apache.cassandra.categories.NightlyOnly;
 import org.apache.cassandra.inject.Injections;
 import org.apache.cassandra.config.DatabaseDescriptor;
 
 /**
  * Force generates segments due to a small RAM size on compaction, to test segment splitting
  */
-@Category(NightlyOnly.class)
 public class SingleNodeTinySegmentQueryTest extends AbstractIndexQueryTest
 {
     @Before

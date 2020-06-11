@@ -36,16 +36,12 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.index.sai.disk.io.CryptoUtils;
 import org.apache.cassandra.index.sai.disk.io.IndexComponents;
-import org.apache.cassandra.index.sai.disk.io.RAMIndexOutput;
 import org.apache.cassandra.index.sai.disk.v1.MetadataSource;
 import org.apache.cassandra.index.sai.disk.v1.MetadataWriter;
-import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.util.BytesRef;
 
 
 /**
@@ -122,7 +118,7 @@ public class SegmentMetadata implements Comparable<SegmentMetadata>
 
     private static final Logger logger = LoggerFactory.getLogger(SegmentMetadata.class);
 
-    private SegmentMetadata(IndexInput input, ICompressor compressor) throws IOException
+    private SegmentMetadata(IndexInput input) throws IOException
     {
         this.segmentRowIdOffset = input.readLong();
 
@@ -132,43 +128,33 @@ public class SegmentMetadata implements Comparable<SegmentMetadata>
         minKey = DatabaseDescriptor.getPartitioner().decorateKey(readBytes(input));
         maxKey = DatabaseDescriptor.getPartitioner().decorateKey(readBytes(input));
 
-        if (compressor != null)
-        {
-            IndexInput cryptoIn = CryptoUtils.uncompress(input, compressor);
+        minTerm = readBytes(input);
+        maxTerm = readBytes(input);
 
-            assert cryptoIn.length() > 0;
-
-            minTerm = readBytes(cryptoIn);
-            maxTerm = readBytes(cryptoIn);
-        }
-        else
-        {
-            minTerm = readBytes(input);
-            maxTerm = readBytes(input);
-        }
         componentMetadatas = new ComponentMetadataMap(input);
     }
 
-    public static List<SegmentMetadata> load(MetadataSource source, ICompressor compressor) throws IOException
+    public static List<SegmentMetadata> load(MetadataSource source) throws IOException
     {
-        IndexInput input = source.get(NAME);
-
-        int segmentCount = input.readVInt();
-
-        List<SegmentMetadata> segmentMetadata = new ArrayList<>(segmentCount);
-
-        for (int i = 0; i < segmentCount; i++)
+        try (IndexInput input = source.get(NAME))
         {
-            segmentMetadata.add(new SegmentMetadata(input, compressor));
-        }
+            int segmentCount = input.readVInt();
 
-        return segmentMetadata;
+            List<SegmentMetadata> segmentMetadata = new ArrayList<>(segmentCount);
+
+            for (int i = 0; i < segmentCount; i++)
+            {
+                segmentMetadata.add(new SegmentMetadata(input));
+            }
+
+            return segmentMetadata;
+        }
     }
 
     /**
      * Writes disk metadata for the given segment list.
      */
-    public static void write(MetadataWriter writer, List<SegmentMetadata> segments, ICompressor compressor) throws IOException
+    public static void write(MetadataWriter writer, List<SegmentMetadata> segments) throws IOException
     {
         try (IndexOutput output = writer.builder(NAME))
         {
@@ -181,20 +167,7 @@ public class SegmentMetadata implements Comparable<SegmentMetadata>
                 output.writeLong(metadata.minSSTableRowId);
                 output.writeLong(metadata.maxSSTableRowId);
 
-                if (compressor != null)
-                {
-                    Stream.of(metadata.minKey.getKey(), metadata.maxKey.getKey()).forEach(bb -> writeBytes(bb, output));
-
-                    RAMIndexOutput out = new RAMIndexOutput("");
-                    writeBytes(metadata.minTerm, out);
-                    writeBytes(metadata.maxTerm, out);
-
-                    CryptoUtils.compress(new BytesRef(out.getBytes(), 0, (int)out.getFilePointer()), output, compressor);
-                }
-                else
-                {
-                    Stream.of(metadata.minKey.getKey(), metadata.maxKey.getKey(), metadata.minTerm, metadata.maxTerm).forEach(bb -> writeBytes(bb, output));
-                }
+                Stream.of(metadata.minKey.getKey(), metadata.maxKey.getKey(), metadata.minTerm, metadata.maxTerm).forEach(bb -> writeBytes(bb, output));
 
                 metadata.componentMetadatas.write(output);
             }

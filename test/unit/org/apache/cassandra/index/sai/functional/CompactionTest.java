@@ -20,23 +20,21 @@
  */
 package org.apache.cassandra.index.sai.functional;
 
-import java.net.InetAddress;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.UUID;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 
+import com.datastax.driver.core.exceptions.InvalidQueryException;
 import org.apache.cassandra.index.sai.disk.SSTableIndexWriter;
 import org.apache.cassandra.inject.ActionBuilder;
 import org.apache.cassandra.inject.Expression;
 import org.apache.cassandra.inject.Injection;
 import org.apache.cassandra.inject.Injections;
 import org.apache.cassandra.inject.InvokePointBuilder;
-import com.datastax.oss.driver.api.core.servererrors.InvalidQueryException;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -49,8 +47,10 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
-import org.apache.cassandra.io.sstable.format.trieindex.TrieIndexSSTableWriter;
-import org.apache.cassandra.repair.RepairInfo;
+import org.apache.cassandra.io.sstable.format.big.BigTableWriter;
+import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.locator.RangesAtEndpoint;
+import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.PreviewKind;
@@ -86,23 +86,24 @@ public class CompactionTest extends AbstractNodeLifecycleTest
 
         // split sstable into repaired and unrepaired
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(currentTable());
-        List<Range<Token>> ranges = Collections.singletonList(new Range<>(DatabaseDescriptor.getPartitioner().getMinimumToken(),
-                                                                          DatabaseDescriptor.getPartitioner().getToken(ByteBufferUtil.bytes("30"))));
+        Range<Token> range = new Range<>(DatabaseDescriptor.getPartitioner().getMinimumToken(),
+                                         DatabaseDescriptor.getPartitioner().getToken(ByteBufferUtil.bytes("30")));
         Collection<SSTableReader> sstables = cfs.getLiveSSTables();
         try (LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
              Refs<SSTableReader> refs = Refs.ref(sstables))
         {
-
+            InetAddressAndPort endpoint = InetAddressAndPort.getByName("10.0.0.1");
             UUID parentRepairSession = UUID.randomUUID();
-            RepairInfo pendingRepairSession = RepairInfo.NONE;
             ActiveRepairService.instance.registerParentRepairSession(parentRepairSession,
-                                                                     InetAddress.getByName("10.0.0.1"),
+                                                                     endpoint,
                                                                      Lists.newArrayList(cfs),
-                                                                     ranges,
+                                                                     Collections.singleton(range),
                                                                      true,
                                                                      1000,
+                                                                     false,
                                                                      PreviewKind.NONE);
-            CompactionManager.instance.performAnticompaction(cfs, ranges, refs, txn, pendingRepairSession, parentRepairSession);
+            RangesAtEndpoint replicas = RangesAtEndpoint.builder(endpoint).add(Replica.fullReplica(endpoint, range)).build();
+            CompactionManager.instance.performAnticompaction(cfs, replicas, refs, txn, parentRepairSession, () -> false);
         }
 
         // verify 2 sstable indexes
@@ -225,7 +226,7 @@ public class CompactionTest extends AbstractNodeLifecycleTest
 
         Injections.Barrier compactionLatch =
                 Injections.newBarrier("pause_compaction", 2, false)
-                                .add(InvokePointBuilder.newInvokePoint().onClass(TrieIndexSSTableWriter.class).onMethod("append"))
+                                .add(InvokePointBuilder.newInvokePoint().onClass(BigTableWriter.class).onMethod("afterAppend"))
                                 .build();
 
         try

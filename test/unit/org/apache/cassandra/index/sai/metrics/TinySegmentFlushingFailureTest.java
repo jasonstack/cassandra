@@ -21,12 +21,9 @@
 package org.apache.cassandra.index.sai.metrics;
 
 import org.junit.Before;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
 import org.apache.cassandra.config.DatabaseDescriptor;
 
-@Category(NightlyOnly.class)
 public class TinySegmentFlushingFailureTest extends SegmentFlushingFailureTest
 {
     @Before

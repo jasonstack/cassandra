@@ -42,7 +42,7 @@ public class OnDiskKeyProducer
     public static final long NO_OFFSET = -1;
 
     private final KeyFetcher keyFetcher;
-    private final RandomAccessReader reader;
+    private final RandomAccessReader keyReader;
     private final LongArray segmentRowIdToOffset;
 
     private final long maxPartitionOffset;
@@ -50,10 +50,10 @@ public class OnDiskKeyProducer
     private long lastOffset = NO_OFFSET;
     private boolean exhausted;
 
-    public OnDiskKeyProducer(KeyFetcher keyFetcher, RandomAccessReader reader, LongArray segmentRowIdToOffset, long maxPartitionOffset)
+    public OnDiskKeyProducer(KeyFetcher keyFetcher, RandomAccessReader keyReader, LongArray segmentRowIdToOffset, long maxPartitionOffset)
     {
         this.keyFetcher = keyFetcher;
-        this.reader = reader;
+        this.keyReader = keyReader;
         this.segmentRowIdToOffset = segmentRowIdToOffset;
         this.maxPartitionOffset = maxPartitionOffset;
     }
@@ -108,7 +108,7 @@ public class OnDiskKeyProducer
         public Iterator<DecoratedKey> keys()
         {
             long keyOffset = getKeyOffset(segmentRowId);
-            DecoratedKey key = keyFetcher.apply(reader, keyOffset);
+            DecoratedKey key = keyFetcher.apply(keyReader, keyOffset);
             return key == null ? Collections.emptyIterator() : Iterators.singletonIterator(key);
         }
 

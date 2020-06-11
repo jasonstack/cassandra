@@ -25,6 +25,7 @@ import java.util.Arrays;
 import org.apache.commons.math3.util.MathArrays;
 import org.junit.Test;
 
+import org.apache.cassandra.index.sai.utils.NdiRandomizedTest;
 import org.apache.lucene.util.IntroSorter;
 import org.apache.lucene.util.Sorter;
 
@@ -43,7 +44,7 @@ public class SorterTest
 
         int[] sortedArray = Arrays.copyOf(array, array.length);
 
-        MathArrays.shuffle(array);
+        NdiRandomizedTest.shuffle(array);
 
         System.out.println("shuffle array="+ Arrays.toString(array));
 

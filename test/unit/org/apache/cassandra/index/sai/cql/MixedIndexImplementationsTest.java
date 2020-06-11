@@ -154,17 +154,18 @@ public class MixedIndexImplementationsTest extends SAITester
         testAllowFiltering("SELECT * FROM %s WHERE c4=0", false);
         testAllowFiltering("SELECT * FROM %s WHERE r1=0", false);
         testAllowFiltering("SELECT * FROM %s WHERE r2=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND c3=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND r1=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND r2=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c3=0 AND r1=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c3=0 AND r2=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE r1=0 AND r2=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND c3=0 AND r1=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND c3=0 AND r2=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND r1=0 AND r2=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c3=0 AND r1=0 AND r2=0", false);
-        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND c3=0 AND r1=0 AND r2=0", false);
+        // TODO SAI ALLOW FILTERING
+        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND c3=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND r1=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND r2=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c3=0 AND r1=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c3=0 AND r2=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE r1=0 AND r2=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND c3=0 AND r1=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND c3=0 AND r2=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND r1=0 AND r2=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c3=0 AND r1=0 AND r2=0", true);
+        testAllowFiltering("SELECT * FROM %s WHERE c2=0 AND c3=0 AND r1=0 AND r2=0", true);
 
         // using the not-SAI index on partition key
         testAllowFiltering("SELECT * FROM %s WHERE k1=0", false);

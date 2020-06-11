@@ -24,9 +24,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.carrotsearch.hppc.IntArrayList;
+import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.index.sai.SSTableContext.KeyFetcher;
 import org.apache.cassandra.index.sai.SSTableIndex;
 import org.apache.cassandra.index.sai.SSTableQueryContext;
@@ -44,6 +46,7 @@ import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 
@@ -66,6 +69,13 @@ public class InvertedIndexSearcherTest extends NdiRandomizedTest
             return null;
         }
     };
+
+    @BeforeClass
+    public static void setupCQLTester()
+    {
+        DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
+        StorageService.instance.setPartitionerUnsafe(Murmur3Partitioner.instance);
+    }
 
     @Test
     public void testEqQueriesAgainstStringIndex() throws Exception

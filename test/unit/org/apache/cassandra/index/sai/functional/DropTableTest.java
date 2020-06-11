@@ -26,9 +26,7 @@ import java.util.Objects;
 
 import com.google.common.collect.Iterables;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-import org.apache.cassandra.categories.NightlyOnly;
 import org.apache.cassandra.inject.ActionBuilder;
 import org.apache.cassandra.inject.Expression;
 import org.apache.cassandra.inject.Injection;
@@ -38,9 +36,8 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.schema.SchemaManager;
+import org.apache.cassandra.schema.Schema;
 
-@Category(NightlyOnly.class)
 public class DropTableTest extends AbstractNodeLifecycleTest
 {
     @Test
@@ -60,13 +57,13 @@ public class DropTableTest extends AbstractNodeLifecycleTest
 
         verifyIndexComponentsIncludedInSSTable(currentTable());
 
-        ColumnFamilyStore cfs = Objects.requireNonNull(SchemaManager.instance.getKeyspaceInstance(KEYSPACE)).getColumnFamilyStore(currentTable());
+        ColumnFamilyStore cfs = Objects.requireNonNull(Schema.instance.getKeyspaceInstance(KEYSPACE)).getColumnFamilyStore(currentTable());
         SSTableReader sstable = Iterables.getOnlyElement(cfs.getLiveSSTables());
 
         ArrayList<String> files = new ArrayList<>();
-        for (Component component : sstable.components())
+        for (Component component : sstable.components)
         {
-            File file = sstable.descriptor.filenameFor(component);
+            File file = sstable.descriptor.fileFor(component);
             if (file.exists())
                 files.add(file.getPath());
         }

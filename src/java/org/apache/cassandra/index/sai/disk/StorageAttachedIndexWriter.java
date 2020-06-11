@@ -36,7 +36,6 @@ import com.google.common.base.Stopwatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.bdp.db.utils.concurrent.Futures;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.index.sai.memory.RowMapping;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
@@ -50,6 +49,7 @@ import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableFlushObserver;
 import org.apache.cassandra.schema.CompressionParams;
+import org.apache.cassandra.utils.FBUtilities;
 
 /**
  * Writes all on-disk index structures attached to a given SSTable.
@@ -62,10 +62,10 @@ public class StorageAttachedIndexWriter implements SSTableFlushObserver
 
     private static JMXEnabledThreadPoolExecutor initMemtableFlushExecutor()
     {
-        JMXEnabledThreadPoolExecutor executor =
-                JMXEnabledThreadPoolExecutor.createAndPrestart(DatabaseDescriptor.getFlushWriters(), 1, TimeUnit.MINUTES,
-                                                               new LinkedBlockingQueue<>(DatabaseDescriptor.getFlushWriters()),
-                                                               new NamedThreadFactory("Memtable-Index-Flush"), "internal");
+        JMXEnabledThreadPoolExecutor executor = new JMXEnabledThreadPoolExecutor(1, DatabaseDescriptor.getFlushWriters(), 1, TimeUnit.MINUTES,
+                                                                                   new LinkedBlockingQueue<>(),
+                                                                                   new NamedThreadFactory("Memtable-Index-Flush"),
+                                                                                   "internal");
 
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
 
@@ -87,24 +87,24 @@ public class StorageAttachedIndexWriter implements SSTableFlushObserver
 
     public StorageAttachedIndexWriter(Descriptor descriptor,
                                       Collection<StorageAttachedIndex> indices,
-                                      LifecycleNewTracker tracker, CompressionParams compressionParams) throws IOException
+                                      LifecycleNewTracker tracker) throws IOException
     {
-        this(descriptor, indices, tracker, false, compressionParams);
+        this(descriptor, indices, tracker, false);
     }
 
     public StorageAttachedIndexWriter(Descriptor descriptor,
                                       Collection<StorageAttachedIndex> indices,
                                       LifecycleNewTracker tracker,
-                                      boolean perColumnOnly, CompressionParams compressionParams) throws IOException
+                                      boolean perColumnOnly) throws IOException
     {
         this.descriptor = descriptor;
         this.indices = indices;
         this.rowMapping = RowMapping.create(tracker.opType());
-        this.columnIndexWriters = indices.stream().map(i -> i.newIndexWriter(descriptor, tracker, rowMapping, compressionParams))
+        this.columnIndexWriters = indices.stream().map(i -> i.newIndexWriter(descriptor, tracker, rowMapping))
                                          .filter(Objects::nonNull) // a null here means the column had no data to flush
                                          .collect(Collectors.toList());
 
-        this.sstableComponentsWriter = perColumnOnly ? SSTableComponentsWriter.NONE : new SSTableComponentsWriter(descriptor, compressionParams);
+        this.sstableComponentsWriter = perColumnOnly ? SSTableComponentsWriter.NONE : new SSTableComponentsWriter(descriptor);
     }
 
     @Override
@@ -217,7 +217,7 @@ public class StorageAttachedIndexWriter implements SSTableFlushObserver
                         return null;
                     }));
                 }
-                Futures.allOf(futures).get();
+                FBUtilities.allOf(futures).get();
             }
         }
         catch (Throwable e)
