@@ -534,7 +534,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         {
             logger.info("Submitting index {} of {} for data in {}",
                         isFullRebuild ? "recovery" : "build",
-                        indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")),
+                        commaSeparated(indexes),
                         sstables.stream().map(SSTableReader::toString).collect(Collectors.joining(",")));
 
             // Group all building tasks
@@ -1127,7 +1127,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                 RowFilter.CustomExpression customExpression = (RowFilter.CustomExpression) expression;
                 logger.trace("Command contains a custom index expression, using target index {}", customExpression.getTargetIndex().name);
                 Tracing.trace("Command contains a custom index expression, using target index {}", customExpression.getTargetIndex().name);
-                 indexes.get(customExpression.getTargetIndex().name);
                 Index.Group group = getIndexGroup(customExpression.getTargetIndex());
                 return group == null ? null : group.queryPlanFor(rowFilter);
             }

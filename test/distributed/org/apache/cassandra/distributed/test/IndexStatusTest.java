@@ -85,7 +85,7 @@ public class IndexStatusTest extends TestBaseImpl
         verifyPeerIndexStatus(index, Index.Status.BUILD_SUCCEEDED, Index.Status.BUILD_SUCCEEDED);
         verifyIndexReadCoordinator(ALL);
 
-        // corrup index on node1, node2 should stay queryable
+        // corrupt index on node1, node2 should stay queryable
         markIndexNonQueryable(1, index);
 
         // after 1st node index build failed, thus BUILD_FAILED
