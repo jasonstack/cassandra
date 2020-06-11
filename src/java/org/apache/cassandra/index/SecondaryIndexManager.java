@@ -1750,6 +1750,9 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                               .getOrDefault(identifier(keyspace, index), Index.Status.UNKNOWN);
     }
 
+    /**
+     * Avoid race with {@link #propagateLocalIndexStatus}
+     */
     public synchronized static void receivePeerIndexStatus(InetAddressAndPort endpoint, VersionedValue versionedValue)
     {
         try
