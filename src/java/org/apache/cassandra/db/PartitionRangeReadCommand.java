@@ -375,9 +375,8 @@ public class PartitionRangeReadCommand extends ReadCommand implements PartitionR
      */
     public PartitionIterator postReconciliationProcessing(PartitionIterator result)
     {
-        ColumnFamilyStore cfs = Keyspace.open(metadata().keyspace).getColumnFamilyStore(metadata().name);
-        Index index = getIndex(cfs);
-        return index == null ? result : index.postProcessorFor(this).apply(result, this);
+        Index.QueryPlan queryPlan = indexQueryPlan();
+        return queryPlan == null ? result : queryPlan.postProcessor().apply(result);
     }
 
     @Override

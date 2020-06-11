@@ -24,7 +24,7 @@ import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
@@ -573,22 +573,6 @@ public interface Index
     }
 
     /**
-     * Return a function which performs post processing on the results of a partition range read command.
-     * In future, this may be used as a generalized mechanism for transforming results on the coordinator prior
-     * to returning them to the caller.
-     *
-     * This is used on the coordinator during execution of a range command to perform post
-     * processing of merged results obtained from the necessary replicas. This is the only way in which results are
-     * transformed in this way but this may change over time as usage is generalized.
-     * See CASSANDRA-8717 for further discussion.
-     *
-     * The function takes a PartitionIterator of the results from the replicas which has already been collated
-     * and reconciled, along with the command being executed. It returns another PartitionIterator containing the results
-     * of the transformation (which may be the same as the input if the transformation is a no-op).
-     */
-    public BiFunction<PartitionIterator, ReadCommand, PartitionIterator> postProcessorFor(ReadCommand command);
-
-    /**
      * Factory method for query time search helper.
      *
      * @param command the read command being executed
@@ -796,6 +780,26 @@ public interface Index
          * @return an Searcher with which to perform the supplied command
          */
         Searcher searcherFor(ReadCommand command);
+
+
+        /**
+         * Return a function which performs post processing on the results of a partition range read command.
+         * In future, this may be used as a generalized mechanism for transforming results on the coordinator prior
+         * to returning them to the caller.
+         *
+         * This is used on the coordinator during execution of a range command to perform post
+         * processing of merged results obtained from the necessary replicas. This is the only way in which results are
+         * transformed in this way but this may change over time as usage is generalized.
+         * See CASSANDRA-8717 for further discussion.
+         *
+         * The function takes a PartitionIterator of the results from the replicas which has already been collated
+         * and reconciled, along with the command being executed. It returns another PartitionIterator containing the results
+         * of the transformation (which may be the same as the input if the transformation is a no-op).
+         */
+        default Function<PartitionIterator, PartitionIterator> postProcessor()
+        {
+            return partitions -> partitions;
+        }
     }
 
     /*

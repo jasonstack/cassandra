@@ -1905,10 +1905,10 @@ public class StorageProxy implements StorageProxyMBean
     private static float estimateResultsPerRange(PartitionRangeReadCommand command, Keyspace keyspace)
     {
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(command.metadata().id);
-        Index index = command.getIndex(cfs);
-        float maxExpectedResults = index == null
+        Index.QueryPlan queryPlan = command.indexQueryPlan();
+        float maxExpectedResults = queryPlan == null
                                  ? command.limits().estimateTotalResults(cfs)
-                                 : index.getEstimatedResultRows();
+                                 : queryPlan.getEstimatedResultRows();
 
         // adjust maxExpectedResults by the number of tokens this node has and the replication factor for this ks
         return (maxExpectedResults / DatabaseDescriptor.getNumTokens()) / keyspace.getReplicationStrategy().getReplicationFactor().allReplicas;
