@@ -1060,14 +1060,6 @@ you may want to adjust max_value_size_in_mb accordingly. This should be positive
 
 *Default Value:* 256
 
-``native_transport_frame_block_size_in_kb``
--------------------------------------------
-*This option is commented out by default.*
-
-If checksumming is enabled as a protocol option, denotes the size of the chunks into which frame
-are bodies will be broken and checksummed.
-
-*Default Value:* 32
 
 ``native_transport_max_concurrent_connections``
 -----------------------------------------------
