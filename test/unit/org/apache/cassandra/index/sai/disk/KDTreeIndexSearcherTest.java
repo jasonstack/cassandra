@@ -48,6 +48,9 @@ public class KDTreeIndexSearcherTest extends NdiRandomizedTest
             upper = new Bound(Int32Type.instance.decompose(7), Int32Type.instance, true);
         }}, SSTableQueryContext.forTest()))
         {
+            assertTrue(results.hasNext());
+            assertEquals(results.getMinimum(), results.getCurrent());
+
             assertEquals(3, results.next().getLong());
             assertEquals(4, results.next().getLong());
             assertEquals(5, results.next().getLong());
@@ -86,6 +89,9 @@ public class KDTreeIndexSearcherTest extends NdiRandomizedTest
             lower = upper = new Bound(Int32Type.instance.decompose(0), Int32Type.instance, true);
         }}, SSTableQueryContext.forTest()))
         {
+            assertTrue(results.hasNext());
+            assertEquals(results.getMinimum(), results.getCurrent());
+
             assertEquals(0, results.next().getLong());
         }
 
@@ -112,6 +118,9 @@ public class KDTreeIndexSearcherTest extends NdiRandomizedTest
             upper = new Bound(LongType.instance.decompose(7L), LongType.instance, true);
         }}, SSTableQueryContext.forTest()))
         {
+            assertTrue(results.hasNext());
+            assertEquals(results.getMinimum(), results.getCurrent());
+
             assertEquals(3L, results.next().getLong());
             assertEquals(4L, results.next().getLong());
             assertEquals(5L, results.next().getLong());
@@ -150,6 +159,9 @@ public class KDTreeIndexSearcherTest extends NdiRandomizedTest
             lower = upper = new Bound(LongType.instance.decompose(0L), LongType.instance, true);
         }}, SSTableQueryContext.forTest()))
         {
+            assertTrue(results.hasNext());
+            assertEquals(results.getMinimum(), results.getCurrent());
+
             assertEquals(0L, results.next().getLong());
         }
 
@@ -176,6 +188,9 @@ public class KDTreeIndexSearcherTest extends NdiRandomizedTest
             upper = new Bound(ShortType.instance.decompose((short) 7), ShortType.instance, true);
         }}, SSTableQueryContext.forTest()))
         {
+            assertTrue(results.hasNext());
+            assertEquals(results.getMinimum(), results.getCurrent());
+
             assertEquals(3L, results.next().getLong());
             assertEquals(4L, results.next().getLong());
             assertEquals(5L, results.next().getLong());
@@ -214,6 +229,9 @@ public class KDTreeIndexSearcherTest extends NdiRandomizedTest
             lower = upper = new Bound(ShortType.instance.decompose((short) 0), ShortType.instance, true);
         }}, SSTableQueryContext.forTest()))
         {
+            assertTrue(results.hasNext());
+            assertEquals(results.getMinimum(), results.getCurrent());
+
             assertEquals(0L, results.next().getLong());
         }
 
