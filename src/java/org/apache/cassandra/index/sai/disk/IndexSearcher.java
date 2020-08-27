@@ -105,9 +105,6 @@ public abstract class IndexSearcher implements Closeable
             return RangeIterator.empty();
 
         final RangeIteratorStatistics rangeIteratorStatistics = new RangeIteratorStatistics();
-        if (rangeIteratorStatistics.noOverlap)
-            return RangeIterator.empty();
-
         RangeIterator iterator = new PostingListRangeIterator(postingList,
                                                               rangeIteratorStatistics,
                                                               rowIdToTokenFactory,
@@ -129,8 +126,6 @@ public abstract class IndexSearcher implements Closeable
     {
         long minToken;
         long maxToken;
-        long maxPartitionOffset;
-        boolean noOverlap;
 
         RangeIteratorStatistics()
         {
@@ -140,8 +135,6 @@ public abstract class IndexSearcher implements Closeable
             maxToken = metadata.maxKey.isMinimum()
                     ? toLongToken(DatabaseDescriptor.getPartitioner().getMaximumToken())
                     : toLongToken(metadata.maxKey);
-
-            maxPartitionOffset = Long.MAX_VALUE;
         }
     }
 

@@ -86,7 +86,6 @@ public class PostingListRangeIterator extends RangeIterator
     {
         super(rangeIteratorStatistics.minToken, rangeIteratorStatistics.maxToken, postingList.size());
         this.postingList = postingList;
-        long maxPartitionOffset = rangeIteratorStatistics.maxPartitionOffset;
         this.context = context;
         this.components = components;
 
@@ -96,7 +95,7 @@ public class PostingListRangeIterator extends RangeIterator
             this.segmentRowIdToToken = segmentRowIdToTokenFactory.openTokenReader(0, context);
             this.segmentRowIdToOffset = segmentRowIdToOffsetFactory.open();
             this.keyReader = keyFetcher.createReader();
-            this.producer = new OnDiskKeyProducer(keyFetcher, keyReader, segmentRowIdToOffset, maxPartitionOffset);
+            this.producer = new OnDiskKeyProducer(keyFetcher, keyReader, segmentRowIdToOffset);
         }
         catch (Throwable t)
         {
