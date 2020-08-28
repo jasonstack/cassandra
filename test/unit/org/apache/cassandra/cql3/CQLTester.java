@@ -129,11 +129,6 @@ public abstract class CQLTester
 
     private static boolean isServerPrepared = false;
 
-    private static JMXConnectorServer jmxServer;
-    private static String jmxHost;
-    private static int jmxPort;
-    protected static MBeanServerConnection jmxConnection;
-
     public static final List<ProtocolVersion> PROTOCOL_VERSIONS = new ArrayList<>(ProtocolVersion.SUPPORTED.size());
 
     private static final String CREATE_INDEX_NAME_REGEX = "(\\s*(\\w*|\"\\w*\")\\s*)";
@@ -299,42 +294,6 @@ public abstract class CQLTester
         assert jmxServer != null : "jmxServer not started";
 
         return new JMXServiceURL(String.format("service:jmx:rmi:///jndi/rmi://%s:%d/jmxrmi", jmxHost, jmxPort));
-    }
-
-    /**
-     * Starts the JMX server. It's safe to call this method multiple times.
-     */
-    public static void startJMXServer() throws Exception
-    {
-        if (jmxServer != null)
-            return;
-
-        InetAddress loopback = InetAddress.getLoopbackAddress();
-        jmxHost = loopback.getHostAddress();
-        try (ServerSocket sock = new ServerSocket())
-        {
-            sock.bind(new InetSocketAddress(loopback, 0));
-            jmxPort = sock.getLocalPort();
-        }
-
-        jmxServer = JMXServerUtils.createJMXServer(jmxPort, true);
-        jmxServer.start();
-    }
-    public static JMXServiceURL getJMXServiceURL() throws MalformedURLException
-    {
-        assert jmxServer != null : "jmxServer not started";
-
-        return new JMXServiceURL(String.format("service:jmx:rmi:///jndi/rmi://%s:%d/jmxrmi", jmxHost, jmxPort));
-    }
-
-    public static void createMBeanServerConnection() throws Exception
-    {
-        assert jmxServer != null : "jmxServer not started";
-
-        Map<String, Object> env = new HashMap<>();
-        env.put("com.sun.jndi.rmi.factory.socket", RMISocketFactory.getDefaultSocketFactory());
-        JMXConnector jmxc = JMXConnectorFactory.connect(getJMXServiceURL(), env);
-        jmxConnection =  jmxc.getMBeanServerConnection();
     }
 
     public static void cleanupAndLeaveDirs() throws IOException
