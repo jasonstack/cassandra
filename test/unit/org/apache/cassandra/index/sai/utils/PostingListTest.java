@@ -46,6 +46,7 @@ public class PostingListTest extends NdiRandomizedTest
         assertEquals(50, postingList.advance(45));
         assertEquals(60, postingList.peek());
         assertEquals(60, postingList.advance(60));
+        assertEquals(PostingList.END_OF_STREAM, postingList.advance(60));
         assertEquals(PostingList.END_OF_STREAM, postingList.peek());
         assertEquals(PostingList.END_OF_STREAM, postingList.nextPosting());
     }
