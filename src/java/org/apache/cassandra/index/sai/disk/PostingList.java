@@ -24,6 +24,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import javax.annotation.concurrent.NotThreadSafe;
 
+import org.apache.cassandra.index.sai.disk.v1.MergePostingList;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.lucene.search.DocIdSetIterator;
 
@@ -96,6 +97,19 @@ public interface PostingList extends Closeable
             {
                 throw Throwables.cleaned(e);
             }
+        }
+
+        public int advanceWithoutConsuming(int targetRowID) throws IOException
+        {
+            if (peek() == END_OF_STREAM)
+                return END_OF_STREAM;
+
+            if (peek() >= targetRowID)
+                return peek();
+
+            peeked = true;
+            next = wrapped.advance(targetRowID);
+            return next;
         }
 
         @Override
