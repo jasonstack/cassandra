@@ -24,7 +24,6 @@ import java.io.Closeable;
 import java.io.IOException;
 import javax.annotation.concurrent.NotThreadSafe;
 
-import org.apache.cassandra.index.sai.disk.v1.MergePostingList;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.lucene.search.DocIdSetIterator;
 

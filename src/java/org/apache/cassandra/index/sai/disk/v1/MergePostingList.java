@@ -104,6 +104,8 @@ public class MergePostingList implements PostingList
     @Override
     public int advance(int targetRowID) throws IOException
     {
+        temp.clear();
+
         while (!postingLists.isEmpty())
         {
             PeekablePostingList peekable = postingLists.poll();
@@ -112,7 +114,6 @@ public class MergePostingList implements PostingList
                 temp.add(peekable);
         }
         postingLists.addAll(temp);
-        temp.clear();
 
         return nextPosting();
     }
