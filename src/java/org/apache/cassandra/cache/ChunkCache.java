@@ -43,7 +43,7 @@ public class ChunkCache
     public static final long cacheSize = 1024L * 1024L * Math.max(0, DatabaseDescriptor.getFileCacheSizeInMB() - RESERVED_POOL_SPACE_IN_MB);
     public static final boolean roundUp = DatabaseDescriptor.getFileCacheRoundUp();
 
-    private static boolean enabled = cacheSize > 0;
+    private static boolean enabled = false;
     public static final ChunkCache instance = enabled ? new ChunkCache() : null;
 
     private static final BufferPool bufferPool = BufferPoolManager.permanent();
