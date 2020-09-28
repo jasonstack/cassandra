@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
 
+import com.google.common.collect.Iterables;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -917,6 +918,10 @@ public class BufferPoolTest
         assertEquals(halfNormalChunk, chunk2.free());
         ByteBuffer buffer = chunk2.get(halfNormalChunk, false, null);
         assertEquals(halfNormalChunk, buffer.capacity());
+
+        // cleanup allocated buffers
+        for (ByteBuffer buf : Arrays.asList(buffer0, buffer1, buffer2, buffer3, buffer))
+            bufferPool.put(buf);
     }
 
     @Test
@@ -957,6 +962,10 @@ public class BufferPoolTest
             total -= buffers2.get(i).capacity();
             assertEquals(total, bufferPool.usedSizeInBytes());
         }
+
+        // cleanup allocated buffers
+        for (ByteBuffer buffer : Iterables.concat(buffers0, buffers1, buffers3))
+            bufferPool.put(buffer);
     }
 
     private BufferPool.Chunk allocate(int num, int bufferSize, List<ByteBuffer> buffers)
