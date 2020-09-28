@@ -50,6 +50,8 @@ public class BufferPoolManager
         logger.info("Global buffer pool limit is {} for {} and {} for {}",
                     prettyPrintMemory(FILE_MEMORY_USAGE_THRESHOLD), PERMANENT.name,
                     prettyPrintMemory(TEMPORARY_MEMORY_USAGE_THRESHOLD), TEMPORARY.name);
+
+        PERMANENT.metrics().register3xAlias();
     }
     /**
      * Long-lived buffers used for chunk cache and other disk access

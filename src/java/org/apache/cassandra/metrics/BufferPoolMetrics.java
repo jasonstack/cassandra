@@ -44,9 +44,9 @@ public class BufferPoolMetrics
      */
     public final Gauge<Long> overflowSize;
 
-    public BufferPoolMetrics(String name, BufferPool bufferPool)
+    public BufferPoolMetrics(String scope, BufferPool bufferPool)
     {
-        MetricNameFactory factory = new DefaultNameFactory("BufferPool", name);
+        MetricNameFactory factory = new DefaultNameFactory("BufferPool", scope);
 
         hits = Metrics.meter(factory.createMetricName("Hits"));
 
@@ -57,5 +57,15 @@ public class BufferPoolMetrics
         usedSize = Metrics.register(factory.createMetricName("UsedSize"), bufferPool::usedSizeInBytes);
 
         size = Metrics.register(factory.createMetricName("Size"), bufferPool::sizeInBytes);
+    }
+
+    /**
+     * used to register alias for 3.0/3.11 compatibility
+     */
+    public void register3xAlias()
+    {
+        MetricNameFactory legacyFactory = new DefaultNameFactory("BufferPool");
+        Metrics.registerMBean(misses, legacyFactory.createMetricName("Misses").getMBeanName());
+        Metrics.registerMBean(size, legacyFactory.createMetricName("Size").getMBeanName());
     }
 }
