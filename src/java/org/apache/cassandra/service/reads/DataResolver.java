@@ -124,19 +124,9 @@ public class DataResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
         Index.QueryPlan queryPlan = command.indexQueryPlan();
         IndexMetadata indexMetadata = queryPlan == null ? null : queryPlan.getFirst().getIndexMetadata();
         if (indexMetadata == null || !indexMetadata.isCustom())
-        {
             return true;
-        }
 
-        ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(command.metadata().id);
-
-        assert cfs != null;
-
-        Index index = command.getIndex(cfs);
-
-        assert index != null;
-
-        return index.supportsReplicaFilteringProtection(command.rowFilter());
+        return queryPlan.supportsReplicaFilteringProtection(command.rowFilter());
     }
 
     private class ResolveContext

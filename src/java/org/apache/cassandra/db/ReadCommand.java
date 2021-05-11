@@ -393,13 +393,6 @@ public abstract class ReadCommand extends AbstractReadQuery
              : 0;
     }
 
-    public Index getIndex(ColumnFamilyStore cfs)
-    {
-        return null != indexQueryPlan
-             ? indexQueryPlan.getFirst()
-             : null;
-    }
-
     static Index.QueryPlan findIndexQueryPlan(TableMetadata table, RowFilter rowFilter)
     {
         if (table.indexes.isEmpty() || rowFilter.isEmpty())

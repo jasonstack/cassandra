@@ -605,23 +605,6 @@ public interface Index
     }
 
     /**
-     * Tells whether this index supports replica fitering protection or not.
-     *
-     * Replica filtering protection might need to run the query row filter in the coordinator to detect stale results.
-     * An index implementation will be compatible with this protection mechanism if it returns the same results for the
-     * row filter as CQL will return with {@code ALLOW FILTERING} and without using the index. This means that index
-     * implementations using custom query syntax or applying transformations to the indexed data won't support it.
-     * See CASSANDRA-8272 for further details.
-     *
-     * @param rowFilter rowFilter of query to decide if it supports replica filtering protection or not
-     * @return true if this index supports replica filtering protection, false otherwise
-     */
-    default boolean supportsReplicaFilteringProtection(RowFilter rowFilter)
-    {
-        return true;
-    }
-
-    /**
      * Factory method for query time search helper.
      *
      * @param command the read command being executed
@@ -878,6 +861,24 @@ public interface Index
          *         the index was used to narrow the initial result set
          */
         RowFilter postIndexQueryFilter();
+
+
+        /**
+         * Tells whether this index supports replica fitering protection or not.
+         *
+         * Replica filtering protection might need to run the query row filter in the coordinator to detect stale results.
+         * An index implementation will be compatible with this protection mechanism if it returns the same results for the
+         * row filter as CQL will return with {@code ALLOW FILTERING} and without using the index. This means that index
+         * implementations using custom query syntax or applying transformations to the indexed data won't support it.
+         * See CASSANDRA-8272 for further details.
+         *
+         * @param rowFilter rowFilter of query to decide if it supports replica filtering protection or not
+         * @return true if this index supports replica filtering protection, false otherwise
+         */
+        default boolean supportsReplicaFilteringProtection(RowFilter rowFilter)
+        {
+            return true;
+        }
     }
 
     /*

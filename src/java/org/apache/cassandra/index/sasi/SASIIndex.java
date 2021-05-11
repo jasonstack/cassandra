@@ -167,9 +167,10 @@ public class SASIIndex implements Index, INotificationConsumer
         return Collections.emptyMap();
     }
 
+    @Override
     public void register(IndexRegistry registry)
     {
-        registry.registerIndex(this);
+        registry.registerIndex(this, this, () -> new SASIIndexGroup(this));
     }
 
     public IndexMetadata getIndexMetadata()
@@ -250,12 +251,6 @@ public class SASIIndex implements Index, INotificationConsumer
 
     public void validate(PartitionUpdate update) throws InvalidRequestException
     {}
-
-    @Override
-    public boolean supportsReplicaFilteringProtection(RowFilter rowFilter)
-    {
-        return false;
-    }
 
     @Override
     public Indexer indexerFor(DecoratedKey key, RegularAndStaticColumns columns, int nowInSec, WriteContext context, IndexTransaction.Type transactionType, Memtable memtable)

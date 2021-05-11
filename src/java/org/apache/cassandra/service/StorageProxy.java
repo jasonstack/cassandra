@@ -102,7 +102,6 @@ import org.apache.cassandra.locator.ReplicaPlans;
 import org.apache.cassandra.locator.Replicas;
 import org.apache.cassandra.metrics.CASClientRequestMetrics;
 import org.apache.cassandra.metrics.CASClientWriteRequestMetrics;
-import org.apache.cassandra.metrics.ClientRangeRequestMetrics;
 import org.apache.cassandra.metrics.ClientRequestMetrics;
 import org.apache.cassandra.metrics.ClientWriteRequestMetrics;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
