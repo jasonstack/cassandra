@@ -19,7 +19,9 @@
 package org.apache.cassandra.index.sai.disk.v2.sortedterms;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.concurrent.NotThreadSafe;
 import javax.annotation.concurrent.ThreadSafe;
@@ -126,10 +128,11 @@ public class SortedTermsReader
         }
     }
 
-    public long getLastPointId(@Nonnull ByteComparable term)
+    public List<Long> getAllPointIds(@Nonnull ByteComparable term)
     {
         Preconditions.checkNotNull(term, "term null");
 
+        List<Long> res = new ArrayList<>();
         try (TrieRangeIterator reader = new TrieRangeIterator(termsTrie.instantiateRebufferer(),
                                                               meta.trieFP,
                                                               term,
@@ -138,10 +141,27 @@ public class SortedTermsReader
                                                               true))
         {
             final Iterator<Pair<ByteSource, Long>> iterator = reader.iterator();
-            long pointId = Long.MAX_VALUE;
-            while (iterator.hasNext())
-                pointId = iterator.next().right; // FIXME travese to the end in trie
-            return pointId;
+            iterator.forEachRemaining(p -> res.add(p.right));
+            return res;
+        }
+    }
+
+    public long getLastPointId(@Nonnull ByteComparable term)
+    {
+        Preconditions.checkNotNull(term, "term null");
+
+        List<Long> res = new ArrayList<>();
+        try (ReversedTrieRangeIterator reader = new ReversedTrieRangeIterator(termsTrie.instantiateRebufferer(),
+                                                                              meta.trieFP,
+                                                                              term,
+                                                                              true))
+        {
+            long next;
+            while ((next = reader.nextId()) >= 0)
+                res.add(next);
+
+            System.out.println("## all matches " + res);
+            return res.isEmpty() ? Long.MAX_VALUE : res.get(0);
         }
     }
 

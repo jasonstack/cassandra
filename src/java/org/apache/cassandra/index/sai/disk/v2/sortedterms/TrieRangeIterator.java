@@ -27,6 +27,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 import com.google.common.collect.AbstractIterator;
 
 import org.apache.cassandra.index.sai.disk.v1.trie.TrieTermsDictionaryReader;
+import org.apache.cassandra.io.tries.ValueIterator;
 import org.apache.cassandra.io.tries.Walker;
 import org.apache.cassandra.io.util.Rebufferer;
 import org.apache.cassandra.utils.Pair;
@@ -70,7 +71,6 @@ class TrieRangeIterator extends Walker<TrieRangeIterator>
             return String.format("[Node %d, child %d, limit %d]", node, childIndex, limit);
         }
     }
-
     public TrieRangeIterator(Rebufferer source,
                              long root,
                              ByteComparable start,

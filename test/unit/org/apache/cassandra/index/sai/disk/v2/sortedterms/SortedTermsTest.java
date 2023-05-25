@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.junit.Test;
 
@@ -31,7 +32,6 @@ import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.index.sai.SAITester;
-import org.apache.cassandra.index.sai.SSTableQueryContext;
 import org.apache.cassandra.index.sai.disk.format.IndexComponent;
 import org.apache.cassandra.index.sai.disk.format.IndexDescriptor;
 import org.apache.cassandra.index.sai.disk.io.IndexOutputWriter;
@@ -174,6 +174,34 @@ public class SortedTermsTest extends SaiRandomizedTest
     }
 
     @Test
+    public void testSeekToTermPrefix() throws Exception
+    {
+        IndexDescriptor descriptor = newIndexDescriptor();
+
+        List<Supplier<ByteSource>> terms = new ArrayList<>();
+        List<Supplier<ByteSource>> termsPrefix = new ArrayList<>();
+        int valuesPerPrefix = 2;
+        writeTerms(descriptor, terms, termsPrefix, valuesPerPrefix);
+
+        // iterate on terms ascending
+        withSortedTermsReader(descriptor, reader ->
+        {
+            for (int x = 0; x < terms.size(); x++)
+            {
+                int index = x;
+                int prefixLength = 6;
+//                long firstPointId = reader.getPointId(v -> terms.get(index).get());
+//                long lastPointId = reader.getLastPointId(v -> terms.get(index).get());
+//                assertEquals(firstPointId, lastPointId);
+
+                long pointIdStart = reader.getPointId(ByteComparable.cut(v -> terms.get(index).get(), prefixLength));
+                long pointIdEnd = reader.getLastPointId(ByteComparable.cut(v -> terms.get(index).get(), prefixLength));
+                assertEquals(pointIdStart + valuesPerPrefix - 1, pointIdEnd);
+            }
+        });
+    }
+
+    @Test
     public void testAdvance() throws IOException
     {
         IndexDescriptor descriptor = newIndexDescriptor();
@@ -310,6 +338,53 @@ public class SortedTermsTest extends SaiRandomizedTest
                     terms.add(bytes);
 
                     writer.add(ByteComparable.fixedLength(bytes));
+                }
+            }
+        }
+    }
+
+    private void writeTerms(IndexDescriptor indexDescriptor, List<Supplier<ByteSource>> terms, List<Supplier<ByteSource>> termsPrefix, int numPerPrefix) throws IOException
+    {
+        try (MetadataWriter metadataWriter = new MetadataWriter(indexDescriptor.openPerSSTableOutput(IndexComponent.GROUP_META)))
+        {
+            IndexOutputWriter trieWriter = indexDescriptor.openPerSSTableOutput(IndexComponent.PRIMARY_KEY_TRIE);
+            IndexOutputWriter bytesWriter = indexDescriptor.openPerSSTableOutput(IndexComponent.PRIMARY_KEY_BLOCKS);
+            NumericValuesWriter blockFPWriter = new NumericValuesWriter(indexDescriptor.componentName(IndexComponent.PRIMARY_KEY_BLOCK_OFFSETS),
+                                                                        indexDescriptor.openPerSSTableOutput(IndexComponent.PRIMARY_KEY_BLOCK_OFFSETS),
+                                                                        metadataWriter, true);
+            try (SortedTermsWriter writer = new SortedTermsWriter(indexDescriptor.componentName(IndexComponent.PRIMARY_KEY_BLOCKS),
+                                                                  metadataWriter,
+                                                                  bytesWriter,
+                                                                  blockFPWriter,
+                                                                  trieWriter))
+            {
+                for (int x = 0; x < 5 ; x++)
+                {
+                    int prefix = x;
+                    for (int i = 0; i < numPerPrefix; i++)
+                    {
+                        String postfix = "v" + i;
+                        terms.add(() -> {
+                            ByteBuffer buffer1 = Int32Type.instance.decompose(prefix);
+                            ByteSource byteSource1 = Int32Type.instance.asComparableBytes(buffer1, ByteComparable.Version.OSS41);
+
+                            ByteBuffer buffer2 = UTF8Type.instance.decompose(postfix);
+                            ByteSource byteSource2 = UTF8Type.instance.asComparableBytes(buffer2, ByteComparable.Version.OSS41);
+
+                            return ByteSource.withTerminator(ByteSource.TERMINATOR, byteSource1, byteSource2);
+                        });
+
+                        termsPrefix.add(() -> {
+                            ByteBuffer buffer1 = Int32Type.instance.decompose(prefix);
+                            ByteSource byteSource1 = Int32Type.instance.asComparableBytes(buffer1, ByteComparable.Version.OSS41);
+
+                            return ByteSource.withTerminator(ByteSource.TERMINATOR, byteSource1, null);
+                        });
+
+                        int index = terms.size() - 1;
+                        writer.add(v -> terms.get(index).get());
+
+                    }
                 }
             }
         }
