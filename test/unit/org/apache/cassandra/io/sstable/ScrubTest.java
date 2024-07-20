@@ -21,6 +21,7 @@ import java.io.IOError;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -58,6 +60,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.CounterMutation;
@@ -76,6 +79,8 @@ import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.EncodingStats;
+import org.apache.cassandra.db.rows.Unfiltered;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -91,8 +96,10 @@ import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.sstable.format.big.BigFormat.Components;
 import org.apache.cassandra.io.sstable.format.bti.BtiFormat;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
+import org.apache.cassandra.io.util.DataIntegrityMetadata;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.OutputHandler;
@@ -107,6 +114,7 @@ import static org.apache.cassandra.SchemaLoader.loadSchema;
 import static org.apache.cassandra.SchemaLoader.standardCFMD;
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_INVALID_LEGACY_SSTABLE_ROOT;
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_UTIL_ALLOW_TOOL_REINIT_FOR_TEST;
+import static org.apache.cassandra.db.ColumnFamilyStore.FlushReason.UNIT_TESTS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -121,6 +129,7 @@ public class ScrubTest
     private final static Logger logger = LoggerFactory.getLogger(ScrubTest.class);
 
     public static final String CF = "Standard1";
+    public static final String COMPRESSED_CF = "compressed_table";
     public static final String COUNTER_CF = "Counter1";
     public static final String CF_UUID = "UUIDKeys";
     public static final String CF_INDEX1 = "Indexed1";
@@ -155,6 +164,7 @@ public class ScrubTest
         createKeyspace(ksName,
                        KeyspaceParams.simple(1),
                        standardCFMD(ksName, CF),
+                       standardCFMD(ksName, COMPRESSED_CF).compression(CompressionParams.lz4(COMPRESSION_CHUNK_LENGTH)),
                        counterCFMD(ksName, COUNTER_CF).compression(getCompressionParameters(COMPRESSION_CHUNK_LENGTH)),
                        standardCFMD(ksName, CF_UUID, 0, UUIDType.instance),
                        SchemaLoader.keysIndexCFMD(ksName, CF_INDEX1, true),
@@ -208,6 +218,53 @@ public class ScrubTest
 
         // check data is still there
         assertOrderedAll(cfs, 0);
+    }
+
+    @Test
+    public void testScrubOneBrokenPartitionInTheMiddleOfCompressedFile() throws IOException
+    {
+        CompactionManager.instance.disableAutoCompaction();
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(COMPRESSED_CF);
+
+        // insert data and verify we get it back w/ range query
+        int partitions = 5;
+        int rowsPerPartition = 2000;
+        int total = partitions * rowsPerPartition;
+        fillCF(cfs, partitions, rowsPerPartition);
+        int outputRows = assertRowsOrdered(Util.cmd(cfs).build());
+        assertThat(outputRows).isEqualTo(total);
+
+        Set<SSTableReader> liveSSTables = cfs.getLiveSSTables();
+        assertThat(liveSSTables).hasSize(1);
+
+        Descriptor descriptor = liveSSTables.iterator().next().descriptor;
+        try (FileChannel channel = FileChannel.open(descriptor.fileFor(Components.DATA).toPath(), StandardOpenOption.WRITE))
+        {
+            // corrupt data in the middle
+            long middle = channel.size() / 2;
+            channel.position(middle);
+
+            byte[] buffer = new byte[50];
+            ThreadLocalRandom.current().nextBytes(buffer);
+            channel.write(ByteBuffer.wrap(buffer));
+        }
+
+        if (ChunkCache.instance != null)
+            ChunkCache.instance.clear();
+        performScrub(cfs, true, true, false, 1);
+
+        // check data is still there, some corrupted partitions are discarded
+        outputRows = assertRowsOrdered(Util.cmd(cfs).build());
+        assertThat(outputRows).isGreaterThan(0).isLessThan(total);
+
+        // check digest file do not exist because scruber can't reset the CRC value after resetting file position when corruption is found.
+        SSTableReader outputSSTable = cfs.getLiveSSTables().iterator().next();
+        assertThat(outputSSTable.descriptor.fileFor(Components.DIGEST).exists()).isTrue();
+
+        File data = outputSSTable.descriptor.fileFor(Components.DATA);
+        File digest = outputSSTable.descriptor.fileFor(Components.DIGEST);
+        DataIntegrityMetadata.FileDigestValidator validator = new DataIntegrityMetadata.FileDigestValidator(data, digest);
+        validator.validate();
     }
 
     @Test
@@ -629,6 +686,33 @@ public class ScrubTest
         assertEquals(expectedSize, size);
     }
 
+    private static int assertRowsOrdered(ReadCommand cmd)
+    {
+        int size = 0;
+        DecoratedKey prev = null;
+        for (Partition partition : Util.getAllUnfiltered(cmd))
+        {
+            DecoratedKey current = partition.partitionKey();
+            assertTrue("key " + current + " does not sort after previous key " + prev, prev == null || prev.compareTo(current) < 0);
+            prev = current;
+
+            ClusteringPrefix<?> prevClustering = null;
+            UnfilteredRowIterator rows = partition.unfilteredIterator();
+            while (rows.hasNext())
+            {
+                Unfiltered unfiltered = rows.next();
+                ClusteringPrefix<?> currentClustering = unfiltered.clustering();
+
+                assertTrue("Clustering " + currentClustering + " does not sort after previous clustering " + prevClustering,
+                           prevClustering == null || cmd.metadata().comparator.compare(prevClustering, currentClustering) < 0);
+
+                prevClustering = currentClustering;
+                size++;
+            }
+        }
+        return size;
+    }
+
     public static void fillCF(ColumnFamilyStore cfs, int partitionsPerSSTable)
     {
         for (int i = 0; i < partitionsPerSSTable; i++)
@@ -642,6 +726,23 @@ public class ScrubTest
         }
 
         Util.flush(cfs);
+    }
+
+    protected static void fillCF(ColumnFamilyStore cfs, int partitionsPerSSTable, int rowsPerPartition)
+    {
+        for (int i = 0; i < partitionsPerSSTable; i++)
+        {
+            for (int r = 0; r < rowsPerPartition; r++)
+            {
+                PartitionUpdate update = UpdateBuilder.create(cfs.metadata(), String.valueOf(i))
+                                                      .newRow(String.valueOf(r)).add("val", "1")
+                                                      .build();
+
+                new Mutation(update).applyUnsafe();
+            }
+        }
+
+        cfs.forceBlockingFlush(UNIT_TESTS);
     }
 
     public static void fillIndexCF(ColumnFamilyStore cfs, boolean composite, long... values)
